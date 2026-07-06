@@ -253,87 +253,7 @@ THE HACK 向けの5分デモ想定です。
 10. Timeline に履歴が追加される
 11. Forecast に「約2日で水不足」と表示される
 
-## 12. Demo Risk Strategy
-
-LoRa は本番デモの必須成功条件にしません。
-
-メイン成功条件:
-
-- PWAで入力できる
-- ローカル保存できる
-- 復旧後に同期できる
-- ダッシュボードに反映できる
-
-追加演出:
-
-- LoRa Emergency Packet
-
-LoRa が会場環境で失敗しても、ShelterOS の中核価値は Offline First として説明できる構成にします。
-
-本番対策:
-
-- LoRa実機デモ
-- LoRa受信済みログの再生ボタン
-- Emergency Packet を手動注入するバックアップ
-
-## 13. Concerns And Responses
-
-### Concern: 既存の避難所管理アプリと被る
-
-Response:
-
-ShelterOS は避難所管理アプリではなく、通信断を前提にした「現場報告・状況観測レイヤー」です。
-
-既存の避難所管理や物資管理の前段で、現場データを止めずに集めるための仕組みとして位置付けます。
-
-### Concern: 防災はハッカソンの定番テーマで既視感がある
-
-Response:
-
-防災アプリではなく、以下に絞って差別化します。
-
-- Offline First
-- Observability
-- LoRa fallback
-- 正確で迷わない現場報告
-- 大学内の小規模検証から始める
-
-### Concern: LoRa が本番で失敗する可能性がある
-
-Response:
-
-LoRa は「最後の通信手段」として扱い、プロダクトの主役にしません。
-
-本番デモの主役は Offline First です。
-
-### Concern: PWA / Service Worker が不安定
-
-Response:
-
-最初の実装は Service Worker に依存しすぎません。
-
-- オフライン保存: localStorage / IndexedDB
-- 未同期キュー: localStorage / IndexedDB
-- 通信断判定: アプリ内の Demo Offline ボタン
-- Service Worker: あれば加点、なくても成立
-
-### Concern: 現場の人が横文字UIを使えない
-
-Response:
-
-現場画面では専門用語を出しません。
-
-Observability / Alerting / Forecasting は本部側・審査員向けの設計思想として扱い、現場担当者は人数・水・緊急度・メモだけを迷わず正確に入力します。
-
-### Concern: LoRa のインフラは誰が設置するのか
-
-Response:
-
-v0.8 では街中の LoRaWAN インフラを前提にしません。
-
-自分たちが持ち込む T-Beam 2台で、避難所ノードと本部ノードの P2P 通信として実証します。
-
-## 14. Technical Stack
+## 12. Technical Stack
 
 ### Frontend
 
@@ -372,7 +292,7 @@ v0.8 では街中の LoRaWAN インフラを前提にしません。
 - Grafana
 - Datadog
 
-## 15. Current Implementation
+## 13. Current Implementation
 
 This repository currently contains a compact MVP:
 
@@ -383,7 +303,7 @@ This repository currently contains a compact MVP:
 - Alert/status rules for people count, water stock, and stale reports
 - Emergency packet view for LoRa-style minimum reports
 
-## 16. Alert Rules
+## 14. Alert Rules
 
 - `UNKNOWN`: no observation exists.
 - `ALERT`: the latest observation is older than 24 hours.
@@ -392,7 +312,7 @@ This repository currently contains a compact MVP:
 - `ALERT`: urgency is `CRITICAL`.
 - `NORMAL`: none of the above apply.
 
-## 17. Hardware Plan
+## 15. Hardware Plan
 
 THE HACK の最小構成:
 
@@ -417,7 +337,7 @@ THE HACK の最小構成:
 - 18650電池は扱いに注意が必要なので、最初はUSB給電またはモバイルバッテリー給電を優先する。
 - 大学内の検証や屋外利用では、技適取得済みのボードを使う。
 
-## 18. Team Roles
+## 16. Team Roles
 
 ### Frontend
 
@@ -448,9 +368,8 @@ THE HACK の最小構成:
 - Emergency Packet設計
 - PCへのSerial連携
 - デモシナリオ整理
-- 本番失敗時のバックアップ導線
 
-## 19. Quick Start
+## 17. Quick Start
 
 ```powershell
 docker compose up --build
@@ -468,7 +387,7 @@ API docs:
 http://localhost:8000/docs
 ```
 
-## 20. Local Development Without Docker
+## 18. Local Development Without Docker
 
 ```powershell
 cd backend
@@ -484,19 +403,3 @@ Run tests:
 cd backend
 python -m pytest
 ```
-
-## 21. Winning Narrative
-
-ShelterOS の勝ち筋は「LoRaで防災DXします」ではありません。
-
-勝ち筋は以下です。
-
-```text
-通信が途絶えても
-現場は報告できる
-本部は観測できる
-復旧後に同期できる
-最後の手段としてLoRaで最低限の情報を届けられる
-```
-
-ShelterOS は、避難所管理アプリではなく、通信断を前提にした災害時の現場情報プラットフォームです。
