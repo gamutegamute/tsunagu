@@ -12,7 +12,7 @@ from app.status import decide_request_code, decide_status
 
 app = FastAPI(title="ShelterOS", version="0.7.0")
 
-FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
 
 
 @app.on_event("startup")
