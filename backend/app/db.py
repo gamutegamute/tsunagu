@@ -43,6 +43,32 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS emergency_packets (
+                id TEXT PRIMARY KEY,
+                version TEXT NOT NULL,
+                shelter_code TEXT NOT NULL,
+                shelter_id TEXT REFERENCES shelters(id) ON DELETE SET NULL,
+                packet_time TEXT NOT NULL,
+                people_count INTEGER NOT NULL CHECK (people_count >= 0),
+                water_stock INTEGER NOT NULL CHECK (water_stock >= 0),
+                status TEXT NOT NULL CHECK (status IN ('NORMAL', 'WARNING', 'ALERT', 'CRITICAL')),
+                request_code TEXT NOT NULL CHECK (
+                    request_code IN (
+                        'REQ_WATER',
+                        'REQ_MEDICAL',
+                        'REQ_FOOD',
+                        'REQ_RESCUE',
+                        'REQ_CONFIRM',
+                        'NONE'
+                    )
+                ),
+                raw_packet TEXT NOT NULL,
+                received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            """
+        )
+        conn.execute(
+            """
             INSERT INTO shelters (id, name, location)
             VALUES
                 ('AIT001', 'Shelter A', 'University Gymnasium'),
