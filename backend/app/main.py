@@ -7,7 +7,16 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.db import get_conn, init_db
-from app.models import EmergencyPacket, Observation, ObservationCreate, Shelter, ShelterCreate, ShelterStatus
+from app.emergency_packet import parse_emergency_packet
+from app.models import (
+    EmergencyPacket,
+    EmergencyPacketCreate,
+    Observation,
+    ObservationCreate,
+    Shelter,
+    ShelterCreate,
+    ShelterStatus,
+)
 from app.status import decide_request_code, decide_status
 
 app = FastAPI(title="ShelterOS", version="0.7.0")
@@ -178,17 +187,46 @@ def dashboard() -> list[dict]:
     return items
 
 
+@app.post("/api/emergency-packets", response_model=EmergencyPacket, status_code=201)
+def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
+    try:
+        packet = parse_emergency_packet(payload.packet)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    packet_id = f"EP-{uuid4().hex}"
+    with get_conn() as conn:
+        shelter = conn.execute("SELECT id FROM shelters WHERE id = %s;", (packet.shelter_code,)).fetchone()
+        shelter_id = shelter["id"] if shelter is not None else None
+
+        # LoRa親機から届いた最低限の情報を、通常報告とは別の受信ログとして残す。
+        row = conn.execute(
+            """
+            INSERT INTO emergency_packets (
+                id, version, shelter_code, shelter_id, packet_time,
+                people_count, water_stock, status, request_code, raw_packet
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *;
+            """,
+            (
+                packet_id,
+                packet.version,
+                packet.shelter_code,
+                shelter_id,
+                packet.packet_time,
+                packet.people_count,
+                packet.water_stock,
+                packet.status,
+                packet.request_code,
+                packet.raw_packet,
+            ),
+        ).fetchone()
+        conn.commit()
+        return row
+
+
 @app.get("/api/emergency-packets", response_model=list[EmergencyPacket])
 def emergency_packets() -> list[dict]:
-    return [
-        {
-            "shelter_id": item["shelter"]["id"],
-            "observed_at": item["latest_observation"]["observed_at"],
-            "people_count": item["latest_observation"]["people_count"],
-            "water_stock": item["latest_observation"]["water_stock"],
-            "status": item["status"],
-            "request_code": item["request_code"],
-        }
-        for item in dashboard()
-        if item["latest_observation"] is not None
-    ]
+    with get_conn() as conn:
+        return list(conn.execute("SELECT * FROM emergency_packets ORDER BY received_at DESC LIMIT 50;"))

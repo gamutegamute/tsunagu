@@ -53,9 +53,18 @@ class ShelterStatus(BaseModel):
 
 
 class EmergencyPacket(BaseModel):
-    shelter_id: str
-    observed_at: datetime
+    id: str
+    version: str
+    shelter_code: str
+    shelter_id: str | None = None
+    packet_time: str
     people_count: int
     water_stock: int
     status: str
-    request_code: str | None
+    request_code: str
+    raw_packet: str
+    received_at: datetime
+
+
+class EmergencyPacketCreate(BaseModel):
+    packet: str = Field(min_length=1, max_length=240)
