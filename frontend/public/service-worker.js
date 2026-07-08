@@ -1,5 +1,5 @@
-const cacheName = "shelteros-v0.7";
-const assets = ["/", "/static/styles.css", "/static/app.js", "/static/manifest.webmanifest"];
+const cacheName = "shelteros-v0.8";
+const assets = ["/", "/static/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(cacheName).then((cache) => cache.addAll(assets)));

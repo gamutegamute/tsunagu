@@ -7,7 +7,8 @@
   --base: #f5f7f4;
   --green: #0d6b57;
   --red: #b43335;
-  --amber: #a65f00;
+  --deep-red: #8f1f23;
+  --amber: #e6b800;
   --blue: #245a88;
 }
 
@@ -23,13 +24,20 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;
   gap: 16px;
   align-items: center;
   padding: 18px 24px;
-  background: #16201f;
+  background: #13201e;
   color: white;
 }
 
@@ -44,13 +52,24 @@ body {
   color: #c7d2ce;
 }
 
-.network {
+.mode-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.mode-button {
   border: 1px solid rgba(255, 255, 255, 0.32);
-  border-radius: 6px;
-  padding: 8px 10px;
-  min-width: 132px;
-  text-align: center;
+  border-radius: 999px;
+  background: transparent;
+  color: white;
+  cursor: pointer;
   font-weight: 700;
+  padding: 8px 12px;
+}
+
+.mode-button.active {
+  background: white;
+  color: var(--ink);
 }
 
 .layout {
@@ -82,6 +101,61 @@ h2 {
   font-size: 18px;
 }
 
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.network {
+  border-radius: 999px;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
+.network.normal {
+  background: var(--green);
+}
+
+.network.offline {
+  background: var(--deep-red);
+}
+
+.network.emergency {
+  background: var(--red);
+}
+
+.status-hero {
+  border-radius: 8px;
+  color: white;
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 16px;
+}
+
+.status-hero.offline {
+  background: var(--deep-red);
+}
+
+.status-hero.emergency {
+  background: #12201e;
+  border: 2px solid var(--red);
+}
+
+.status-hero strong {
+  font-size: 16px;
+}
+
+.status-hero span {
+  color: #f2eeee;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 form {
   display: grid;
   gap: 12px;
@@ -97,25 +171,29 @@ label {
 
 input,
 select,
-textarea,
-button {
+textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 10px 11px;
   color: var(--ink);
-  font: inherit;
+  padding: 10px 11px;
 }
 
-button {
+textarea {
+  resize: vertical;
+}
+
+button[type="submit"],
+#syncButton {
   border: 0;
+  border-radius: 6px;
   background: var(--green);
   color: white;
-  font-weight: 700;
   cursor: pointer;
+  font-weight: 700;
+  padding: 11px 14px;
 }
 
-button.secondary,
 #syncButton {
   width: auto;
   min-width: 88px;
@@ -128,11 +206,55 @@ button.secondary,
   gap: 10px;
 }
 
-.section-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+legend {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.urgency-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.urgency {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 48px;
+}
+
+.urgency.active.normal {
+  background: var(--green);
+  color: white;
+}
+
+.urgency.active.high {
+  background: var(--amber);
+  color: #1c1b14;
+}
+
+.urgency.active.critical {
+  background: var(--red);
+  color: white;
+}
+
+.pending {
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
 }
 
 .summary {
@@ -169,8 +291,8 @@ button.secondary,
   border: 1px solid var(--line);
   border-left: 6px solid var(--green);
   border-radius: 8px;
-  padding: 14px;
   min-height: 176px;
+  padding: 14px;
 }
 
 .shelter-card.warning {
@@ -196,15 +318,16 @@ button.secondary,
 
 .badge {
   border-radius: 999px;
-  padding: 5px 8px;
+  background: var(--green);
   color: white;
   font-size: 12px;
   font-weight: 700;
-  background: var(--green);
+  padding: 5px 8px;
 }
 
 .badge.warning {
   background: var(--amber);
+  color: #1c1b14;
 }
 
 .badge.alert,
@@ -257,6 +380,14 @@ pre {
   .topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .mode-controls {
+    width: 100%;
+  }
+
+  .mode-button {
+    flex: 1;
   }
 
   .layout,

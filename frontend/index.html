@@ -1,71 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="ja">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#16201f" />
     <title>ShelterOS</title>
     <link rel="manifest" href="/static/manifest.webmanifest" />
-    <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div>
-        <h1>ShelterOS</h1>
-        <p>Offline First Disaster Observability Platform</p>
-      </div>
-      <div class="network" id="networkState">Checking...</div>
-    </header>
-
-    <main class="layout">
-      <section class="panel report-panel">
-        <h2>Field Report</h2>
-        <form id="reportForm">
-          <label>
-            Shelter
-            <select id="shelterId" required></select>
-          </label>
-          <div class="split">
-            <label>
-              People
-              <input id="peopleCount" type="number" min="0" value="50" required />
-            </label>
-            <label>
-              Water
-              <input id="waterStock" type="number" min="0" value="20" required />
-            </label>
-          </div>
-          <label>
-            Urgency
-            <select id="urgency">
-              <option>NORMAL</option>
-              <option>HIGH</option>
-              <option>CRITICAL</option>
-            </select>
-          </label>
-          <label>
-            Memo
-            <textarea id="memo" rows="3" placeholder="Need blankets, water delivery blocked, etc."></textarea>
-          </label>
-          <button type="submit">Submit Report</button>
-        </form>
-      </section>
-
-      <section class="panel dashboard-panel">
-        <div class="section-title">
-          <h2>Headquarters Dashboard</h2>
-          <button id="syncButton" type="button">Sync</button>
-        </div>
-        <div class="summary" id="summary"></div>
-        <div class="shelter-grid" id="dashboard"></div>
-      </section>
-
-      <section class="panel packets-panel">
-        <h2>Emergency Packets</h2>
-        <pre id="packets"></pre>
-      </section>
-    </main>
-
-    <script src="/static/app.js" type="module"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

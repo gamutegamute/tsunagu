@@ -258,7 +258,7 @@ THE HACK 向けの5分デモ想定です。
 ### Frontend
 
 - PWA
-- React 想定
+- React / Vite
 - オフライン対応
 - localStorage / IndexedDB による一時保存
 
@@ -298,10 +298,11 @@ This repository currently contains a compact MVP:
 
 - FastAPI backend
 - PostgreSQL schema
-- Static PWA frontend
+- React / Vite PWA frontend
 - Offline local save and later sync using `client_event_id`
 - Alert/status rules for people count, water stock, and stale reports
 - Emergency packet view for LoRa-style minimum reports
+- Timeline / Forecast / Incident screens are planned as MVP UI layers and will be expanded iteratively.
 
 ## 14. Alert Rules
 

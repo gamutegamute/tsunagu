@@ -10,9 +10,20 @@ from app.db import get_conn, init_db
 from app.models import EmergencyPacket, Observation, ObservationCreate, Shelter, ShelterCreate, ShelterStatus
 from app.status import decide_request_code, decide_status
 
-app = FastAPI(title="ShelterOS", version="0.7.0")
+app = FastAPI(title="ShelterOS", version="0.8.0")
 
-FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+APP_FILE = Path(__file__).resolve()
+FRONTEND_CANDIDATES = [
+    APP_FILE.parents[1] / "frontend",
+    APP_FILE.parents[2] / "frontend" / "dist",
+    APP_FILE.parents[2] / "frontend",
+]
+
+# Docker実行時とローカル実行時でfrontendの配置が違うため、存在するindex.htmlを優先して使う。
+FRONTEND_DIR = next(
+    (path for path in FRONTEND_CANDIDATES if (path / "index.html").exists()),
+    FRONTEND_CANDIDATES[0],
+)
 
 
 @app.on_event("startup")
