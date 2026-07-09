@@ -77,4 +77,14 @@ def init_db() -> None:
             ON CONFLICT (id) DO NOTHING;
             """
         )
+        conn.execute(
+            """
+            ALTER TABLE observations ADD COLUMN IF NOT EXISTS reporter_name TEXT NOT NULL DEFAULT '';
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE observations ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'web' CHECK (source IN ('web', 'emergency_packet', 'offline'));
+            """
+        )
         conn.commit()

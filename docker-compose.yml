@@ -23,6 +23,9 @@ services:
       DATABASE_URL: postgresql://shelteros:shelteros@db:5432/shelteros
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
     depends_on:
       db:
         condition: service_healthy

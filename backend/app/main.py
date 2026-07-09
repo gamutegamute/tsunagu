@@ -81,9 +81,12 @@ def create_observation(payload: ObservationCreate) -> dict:
     observed_at = payload.observed_at or datetime.now(timezone.utc)
     observation_id = f"OBS-{uuid4().hex}"
     with get_conn() as conn:
-        shelter = conn.execute("SELECT id FROM shelters WHERE id = %s;", (payload.shelter_id,)).fetchone()
+        shelter_id_val = payload.shelter_id or payload.shelter_code
+        shelter = conn.execute("SELECT id FROM shelters WHERE id = %s;", (shelter_id_val,)).fetchone()
         if shelter is None:
             raise HTTPException(status_code=404, detail="Shelter not found")
+
+        resolved_shelter_id = shelter["id"]
 
         existing = conn.execute(
             "SELECT * FROM observations WHERE client_event_id = %s;",
@@ -96,20 +99,22 @@ def create_observation(payload: ObservationCreate) -> dict:
             """
             INSERT INTO observations (
                 id, shelter_id, client_event_id, people_count, water_stock,
-                urgency, memo, observed_at
+                urgency, memo, observed_at, reporter_name, source
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *;
             """,
             (
                 observation_id,
-                payload.shelter_id,
+                resolved_shelter_id,
                 payload.client_event_id,
                 payload.people_count,
                 payload.water_stock,
                 payload.urgency,
                 payload.memo,
                 observed_at,
+                payload.reporter_name,
+                payload.source,
             ),
         ).fetchone()
         conn.commit()
@@ -148,7 +153,9 @@ def dashboard() -> list[dict]:
                     o.urgency,
                     o.memo,
                     o.observed_at,
-                    o.created_at AS observation_created_at
+                    o.created_at AS observation_created_at,
+                    o.reporter_name,
+                    o.source
                 FROM shelters s
                 LEFT JOIN LATERAL (
                     SELECT *
@@ -176,6 +183,8 @@ def dashboard() -> list[dict]:
                 "memo": row["memo"],
                 "observed_at": row["observed_at"],
                 "created_at": row["observation_created_at"],
+                "reporter_name": row["reporter_name"],
+                "source": row["source"],
             }
         status = decide_status(
             observed_at=row["observed_at"],
@@ -233,6 +242,74 @@ def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
                 packet.raw_packet,
             ),
         ).fetchone()
+
+        # shelter_id が特定できた場合、observations テーブルにも同期する
+        if shelter_id is not None:
+            # タイムスタンプの組み立て (日本時間 JST 想定)
+            # LoRaパケットには時刻のみが含まれているため、受信した日(JST)の時刻として補完する。
+            # 日をまたいだ遅延などで、作成した日時が受信日時より未来になった場合は1日前として処理する。
+            try:
+                h, m = map(int, packet.packet_time.split(":"))
+                from datetime import timedelta
+                # Postgresから取得した TIMESTAMPTZ (received_at) を JST (UTC+9) に変換
+                jst = timezone(timedelta(hours=9))
+                received_jst = row["received_at"].astimezone(jst)
+                observed_jst = received_jst.replace(hour=h, minute=m, second=0, microsecond=0)
+                if observed_jst > received_jst:
+                    # 未来の日時になった場合は前日とみなす
+                    observed_jst -= timedelta(days=1)
+                observed_at = observed_jst.astimezone(timezone.utc)
+            except Exception:
+                observed_at = row["received_at"]
+
+            # LoRa status から Observation urgency への変換
+            # NORMAL -> NORMAL, WARNING -> HIGH, ALERT -> CRITICAL, CRITICAL -> CRITICAL
+            urgency_map = {
+                "NORMAL": "NORMAL",
+                "WARNING": "HIGH",
+                "ALERT": "CRITICAL",
+                "CRITICAL": "CRITICAL",
+            }
+            urgency = urgency_map.get(packet.status, "NORMAL")
+
+            # client_event_id の生成 (LORA-<sha256の先頭16文字>)
+            # 重複挿入を防ぐための冪等キー。パケット情報と算出日付からハッシュ化する。
+            import hashlib
+            observed_date_str = observed_at.date().isoformat()
+            packet_data_str = f"{packet.shelter_code}:{packet.packet_time}:{packet.people_count}:{packet.water_stock}:{packet.status}:{packet.request_code}:{observed_date_str}"
+            packet_hash = hashlib.sha256(packet_data_str.encode("utf-8")).hexdigest()
+            client_event_id = f"LORA-{packet_hash[:16]}"
+
+            # 重複チェック
+            existing_obs = conn.execute(
+                "SELECT id FROM observations WHERE client_event_id = %s;", (client_event_id,)
+            ).fetchone()
+
+            if existing_obs is None:
+                observation_id = f"OBS-{uuid4().hex}"
+                memo = f"[LoRa] Status: {packet.status}, Req: {packet.request_code}"
+                conn.execute(
+                    """
+                    INSERT INTO observations (
+                        id, shelter_id, client_event_id, people_count, water_stock,
+                        urgency, memo, observed_at, reporter_name, source
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        observation_id,
+                        shelter_id,
+                        client_event_id,
+                        packet.people_count,
+                        packet.water_stock,
+                        urgency,
+                        memo,
+                        observed_at,
+                        "LoRa Packet",
+                        "emergency_packet",
+                    ),
+                )
+
         conn.commit()
         return row
 
