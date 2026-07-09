@@ -10,3 +10,8 @@ __pycache__/
 # Local environment files
 .env
 .env.*
+
+# OS generated files
+desktop.ini
+[Dd]esktop.ini
+

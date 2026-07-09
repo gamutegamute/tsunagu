@@ -395,3 +395,12 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+.reporter {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}

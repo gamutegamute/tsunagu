@@ -156,7 +156,13 @@ function App() {
   }
 
   function createReportPayload() {
+    const trimmedReporterName = report.reporter_name.trim();
+    if (trimmedReporterName) {
+      localStorage.setItem(reporterNameKey, trimmedReporterName);
+    }
+
     const payload = {
+      reporter_name: trimmedReporterName,
       shelter_id: report.shelter_id,
       client_event_id: crypto.randomUUID(),
       people_count: Number(report.people_count),
@@ -164,12 +170,8 @@ function App() {
       urgency: report.urgency,
       memo: report.memo,
       observed_at: new Date().toISOString(),
+      source: networkMode === "offline" || networkMode === "emergency" ? "offline" : "web",
     };
-
-    // 現行APIには未対応だが、フロント側では報告者名を保存して次のAPI拡張に備える。
-    if (report.reporter_name.trim()) {
-      localStorage.setItem(reporterNameKey, report.reporter_name.trim());
-    }
 
     return payload;
   }
@@ -359,6 +361,13 @@ function App() {
                     <div className="fact"><strong>{observation?.people_count ?? "-"}</strong><span>人数</span></div>
                     <div className="fact"><strong>{observation?.water_stock ?? "-"}</strong><span>水</span></div>
                   </div>
+                  {observation && (
+                    <p className="reporter">
+                      {observation.source === "emergency_packet"
+                        ? "📡 LoRaパケット"
+                        : `👤 報告者: ${observation.reporter_name || "不明"}`}
+                    </p>
+                  )}
                   <p className="memo">{observation?.memo || item.request_code || "要請なし"}</p>
                   <p className="timestamp">
                     {observation ? new Date(observation.observed_at).toLocaleString() : "報告なし"}
