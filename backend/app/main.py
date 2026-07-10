@@ -45,6 +45,9 @@ if FRONTEND_DIR.exists():
 
 
 @app.get("/", include_in_schema=False)
+@app.get("/field-report", include_in_schema=False)
+@app.get("/dashboard", include_in_schema=False)
+@app.get("/dev-preview", include_in_schema=False)
 def index() -> FileResponse:
     return FileResponse(FRONTEND_DIR / "index.html")
 

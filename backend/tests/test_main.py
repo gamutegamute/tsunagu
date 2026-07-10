@@ -1,9 +1,20 @@
 from uuid import uuid4
 from fastapi.testclient import TestClient
+import app.main as main_module
 from app.main import app
 from app.db import get_conn
 
 client = TestClient(app)
+
+def test_frontend_routes_return_index_html(tmp_path, monkeypatch):
+    (tmp_path / "index.html").write_text("<html><body>ShelterOS</body></html>", encoding="utf-8")
+    monkeypatch.setattr(main_module, "FRONTEND_DIR", tmp_path)
+
+    for path in ["/", "/field-report", "/dashboard", "/dev-preview"]:
+        response = client.get(path)
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+
 
 def test_create_observation_success():
     client_event_id = str(uuid4())
