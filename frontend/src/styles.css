@@ -73,12 +73,15 @@ textarea {
   color: var(--ink);
 }
 
-.layout {
-  display: grid;
-  grid-template-columns: 360px 1fr;
-  gap: 16px;
+.layout-mobile {
   padding: 16px;
-  max-width: 1400px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.layout-desktop {
+  padding: 16px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 
@@ -634,7 +637,8 @@ legend {
 
 @media (max-width: 860px) {
   .topbar,
-  .layout {
+  .layout-mobile,
+  .layout-desktop {
     padding-left: 12px;
     padding-right: 12px;
   }
@@ -652,7 +656,6 @@ legend {
     flex: 1;
   }
 
-  .layout,
   .summary {
     grid-template-columns: 1fr;
   }
