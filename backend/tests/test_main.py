@@ -39,7 +39,7 @@ def test_create_observation_with_shelter_code():
         "client_event_id": client_event_id,
         "people_count": 80,
         "water_stock": 25,
-        "urgency": "HIGH",
+        "urgency": "WARNING",
         "memo": "",
         "reporter_name": "Offline Reporter",
         "source": "offline"
@@ -70,7 +70,7 @@ def test_create_emergency_packet_syncs_to_observations():
         assert obs is not None
         assert obs["people_count"] == 210
         assert obs["water_stock"] == 45
-        assert obs["urgency"] == "HIGH"  # WARNING -> HIGH
+        assert obs["urgency"] == "WARNING"
         assert obs["reporter_name"] == "LoRa Packet"
         assert "[LoRa]" in obs["memo"]
         assert obs["client_event_id"].startswith("LORA-")

@@ -34,7 +34,7 @@ def init_db() -> None:
                 client_event_id TEXT NOT NULL UNIQUE,
                 people_count INTEGER NOT NULL CHECK (people_count >= 0),
                 water_stock INTEGER NOT NULL CHECK (water_stock >= 0),
-                urgency TEXT NOT NULL CHECK (urgency IN ('NORMAL', 'HIGH', 'CRITICAL')),
+                urgency TEXT NOT NULL CHECK (urgency IN ('NORMAL', 'WARNING', 'ALERT', 'CRITICAL')),
                 memo TEXT NOT NULL DEFAULT '',
                 observed_at TIMESTAMPTZ NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -85,6 +85,21 @@ def init_db() -> None:
         conn.execute(
             """
             ALTER TABLE observations ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'web' CHECK (source IN ('web', 'emergency_packet', 'offline'));
+            """
+        )
+        conn.execute("ALTER TABLE observations DROP CONSTRAINT IF EXISTS observations_urgency_check;")
+        conn.execute(
+            """
+            UPDATE observations
+            SET urgency = 'WARNING'
+            WHERE urgency = 'HIGH';
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE observations
+            ADD CONSTRAINT observations_urgency_check
+            CHECK (urgency IN ('NORMAL', 'WARNING', 'ALERT', 'CRITICAL'));
             """
         )
         conn.commit()
