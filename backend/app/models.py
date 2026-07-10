@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field, model_validator
 
 class Urgency(StrEnum):
     NORMAL = "NORMAL"
-    HIGH = "HIGH"
+    WARNING = "WARNING"
+    ALERT = "ALERT"
     CRITICAL = "CRITICAL"
 
 

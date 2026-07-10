@@ -1,37 +1,70 @@
+// 状態(ステータス)ごとの日本語ラベル。CSSクラス名は英語のまま(status.toLowerCase())で管理する。
+const STATUS_LABELS_JA = {
+  NORMAL: "通常",
+  WARNING: "注意",
+  ALERT: "警戒",
+  CRITICAL: "重大",
+  UNKNOWN: "不明",
+};
+
 function toStatusClassName(status) {
   return status.toLowerCase();
 }
 
-/** 避難所1件分の状況を表示するカード。 */
+function formatUpdatedAt(observedAtIsoString) {
+  if (!observedAtIsoString) return "まだ報告がありません";
+  const time = new Date(observedAtIsoString).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  return `最終更新 ${time}`;
+}
+
+/** 避難所1件分の状況を表示するカード(Figmaの ShelterCard コンポーネントを再現)。 */
 export default function ShelterCard({ shelterStatus }) {
   const { shelter, latest_observation: observation, status, request_code: requestCode } = shelterStatus;
   const statusClassName = toStatusClassName(status);
 
   return (
     <article className={`shelter-card ${statusClassName}`}>
-      <div className="card-title">
-        <h3>
-          {shelter.id} {shelter.name}
-        </h3>
-        <span className={`badge ${statusClassName}`}>{status}</span>
-      </div>
-      <div className="facts">
-        <div className="fact">
-          <strong>{observation?.people_count ?? "-"}</strong>
-          <span>人数</span>
+      <div className="shelter-card-accent" aria-hidden="true" />
+      <div className="shelter-card-body">
+        <div className="shelter-card-title-row">
+          <h3>
+            {shelter.id} {shelter.name}
+          </h3>
+          <span className={`status-badge ${statusClassName}`}>
+            {status} {STATUS_LABELS_JA[status] ?? ""}
+          </span>
         </div>
-        <div className="fact">
-          <strong>{observation?.water_stock ?? "-"}</strong>
-          <span>水</span>
+
+        <div className="shelter-card-stats">
+          <div className="shelter-stat">
+            <span className="shelter-stat-label">人数</span>
+            <div className="shelter-stat-value">
+              <strong>{observation?.people_count ?? "-"}</strong>
+              <span>人</span>
+            </div>
+          </div>
+          <div className="shelter-stat">
+            <span className="shelter-stat-label">水在庫</span>
+            <div className="shelter-stat-value">
+              <strong>{observation?.water_stock ?? "-"}</strong>
+              <span>L</span>
+            </div>
+          </div>
+        </div>
+
+        {observation && (
+          <p className="reporter">
+            {observation.source === "emergency_packet"
+              ? "📡 報告者名・メモ: LoRa経由のため未取得"
+              : `👤 報告者: ${observation.reporter_name || "不明"}`}
+          </p>
+        )}
+
+        <div className="shelter-card-footer">
+          <span className="shelter-card-updated">{formatUpdatedAt(observation?.observed_at)}</span>
+          {requestCode && <span className="request-code-chip">{requestCode}</span>}
         </div>
       </div>
-      {observation && (
-        <p className="reporter">
-          {observation.source === "emergency_packet" ? "📡 LoRaパケット" : `👤 報告者: ${observation.reporter_name || "不明"}`}
-        </p>
-      )}
-      <p className="memo">{observation?.memo || requestCode || "要請なし"}</p>
-      <p className="timestamp">{observation ? new Date(observation.observed_at).toLocaleString() : "報告なし"}</p>
     </article>
   );
 }

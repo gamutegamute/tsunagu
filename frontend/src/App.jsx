@@ -2,20 +2,19 @@ import { useEffect, useState } from "react";
 import NetworkModeSwitcher from "./components/NetworkModeSwitcher.jsx";
 import FieldReportForm from "./components/FieldReportForm.jsx";
 import Dashboard from "./components/Dashboard.jsx";
-import PacketsPanel from "./components/PacketsPanel.jsx";
 import { useShelterList } from "./hooks/useShelterList.js";
 import { useNetworkMode } from "./hooks/useNetworkMode.js";
 import { useOfflineReportQueue } from "./hooks/useOfflineReportQueue.js";
 import { useDashboardData } from "./hooks/useDashboardData.js";
 import { createObservation } from "./api.js";
-import { buildEmergencyPacket, decideLocalStatus, decideLocalRequestCode } from "./utils/emergencyPacket.js";
+import { decideLocalStatus, decideLocalRequestCode, mergeEmergencyDataIntoDashboard } from "./utils/emergencyPacket.js";
 import { STORAGE_KEYS } from "./utils/storageKeys.js";
 
 export default function App() {
   const shelters = useShelterList();
   const { pendingReportCount, addReportToPendingQueue, sendPendingReports } = useOfflineReportQueue();
   const { dashboardItems, emergencyPackets, reloadDashboard } = useDashboardData();
-  const [lastPacket, setLastPacket] = useState("");
+  const [lastEmergencyShelterStatus, setLastEmergencyShelterStatus] = useState(null);
 
   // 通信が復活したら、保留中の報告を再送してからダッシュボードを更新する
   const [networkMode, setNetworkMode] = useNetworkMode(() => {
@@ -63,9 +62,22 @@ export default function App() {
       addReportToPendingQueue(payload);
 
       if (isEmergency) {
-        // 非常時は通信量を抑えるため、詳細な報告は送らずLoRa向けの最低限パケットだけ組み立てる
+        // 非常時は通信量を抑えるため、詳細な報告は送らずLoRa向けの最低限情報だけ組み立てる。
+        // 報告者名・メモはLoRaでは送らないため、この確認表示にも含めない。
         const status = decideLocalStatus(payload);
-        setLastPacket(buildEmergencyPacket(payload, status, decideLocalRequestCode(payload, status)));
+        const requestCode = decideLocalRequestCode(payload, status);
+        const matchedShelter = shelters.find((shelter) => shelter.id === payload.shelter_id);
+        setLastEmergencyShelterStatus({
+          shelter: { id: payload.shelter_id, name: matchedShelter?.name ?? "" },
+          latest_observation: {
+            people_count: payload.people_count,
+            water_stock: payload.water_stock,
+            observed_at: payload.observed_at,
+            source: "emergency_packet",
+          },
+          status,
+          request_code: requestCode,
+        });
       }
     }
 
@@ -75,6 +87,13 @@ export default function App() {
   function handleSyncButtonClick() {
     sendPendingReports().then(reloadDashboard);
   }
+
+  const shelterStatusList = mergeEmergencyDataIntoDashboard(
+    dashboardItems,
+    emergencyPackets,
+    shelters,
+    lastEmergencyShelterStatus,
+  );
 
   return (
     <>
@@ -93,8 +112,7 @@ export default function App() {
           pendingReportCount={pendingReportCount}
           onSubmitReport={handleSubmitReport}
         />
-        <Dashboard shelterStatusList={dashboardItems} onSyncButtonClick={handleSyncButtonClick} />
-        <PacketsPanel lastPacket={lastPacket} emergencyPackets={emergencyPackets} />
+        <Dashboard shelterStatusList={shelterStatusList} onSyncButtonClick={handleSyncButtonClick} />
       </main>
     </>
   );

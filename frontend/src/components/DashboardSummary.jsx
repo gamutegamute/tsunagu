@@ -5,7 +5,9 @@ function summarizeShelterStatusList(shelterStatusList) {
     const observation = shelterStatus.latest_observation;
     const statusName = shelterStatus.status.toLowerCase();
     const isWarning = statusName === "warning";
-    const isAlertOrUnknown = statusName === "alert" || statusName === "unknown";
+    // 緊急度4段階(NORMAL/WARNING/ALERT/CRITICAL)を前提に、警戒以上をまとめて数える。
+    // バックエンドがまだCRITICALを返さない間もこの集計ロジックはそのまま使える。
+    const isAlertOrUnknown = statusName === "alert" || statusName === "critical" || statusName === "unknown";
 
     return {
       totalPeople: totals.totalPeople + (observation?.people_count || 0),
@@ -36,7 +38,7 @@ export default function DashboardSummary({ shelterStatusList }) {
       </div>
       <div className="metric">
         <strong>{totals.alertOrUnknownCount}</strong>
-        <span>警戒/不明</span>
+        <span>警戒/重大/不明</span>
       </div>
     </div>
   );

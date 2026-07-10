@@ -23,8 +23,10 @@ def decide_status(
     if age_hours > STALE_HOURS:
         return "ALERT"
     if urgency == "CRITICAL":
+        return "CRITICAL"
+    if urgency == "ALERT":
         return "ALERT"
-    if urgency == "HIGH":
+    if urgency == "WARNING":
         return "WARNING"
     if water_stock is not None and water_stock < LOW_WATER_THRESHOLD:
         return "WARNING"
@@ -34,6 +36,6 @@ def decide_status(
 def decide_request_code(*, water_stock: int | None, status: str) -> str | None:
     if water_stock is not None and water_stock < LOW_WATER_THRESHOLD:
         return "REQ_WATER"
-    if status == "ALERT":
+    if status in {"ALERT", "CRITICAL"}:
         return "REQ_CONFIRM"
     return None

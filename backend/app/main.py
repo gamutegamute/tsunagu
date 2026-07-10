@@ -262,12 +262,11 @@ def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
             except Exception:
                 observed_at = row["received_at"]
 
-            # LoRa status から Observation urgency への変換
-            # NORMAL -> NORMAL, WARNING -> HIGH, ALERT -> CRITICAL, CRITICAL -> CRITICAL
+            # LoRa status と通常報告の urgency は同じ4段階で扱う。
             urgency_map = {
                 "NORMAL": "NORMAL",
-                "WARNING": "HIGH",
-                "ALERT": "CRITICAL",
+                "WARNING": "WARNING",
+                "ALERT": "ALERT",
                 "CRITICAL": "CRITICAL",
             }
             urgency = urgency_map.get(packet.status, "NORMAL")
