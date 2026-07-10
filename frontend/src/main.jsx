@@ -12,7 +12,7 @@ if ("serviceWorker" in navigator) {
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <BrowserRouter basename="/static">
+    <BrowserRouter>
       <Routes>
         <Route path="/" element={<Navigate to="/field-report" replace />} />
         <Route path="/field-report" element={<FieldReportPage />} />
