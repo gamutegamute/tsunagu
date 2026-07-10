@@ -1,0 +1,108 @@
+name: GitHub → Discord 通知
+
+on:
+  create:
+  pull_request:
+    types: [opened, closed]
+
+jobs:
+  notify-branch-create:
+    if: github.event_name == 'create' && github.event.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Discordへブランチ作成を通知
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ACTOR: ${{ github.actor }}
+          BRANCH: ${{ github.event.ref }}
+        run: |
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          PAYLOAD=$(jq -n \
+            --arg actor "$ACTOR" \
+            --arg branch "$BRANCH" \
+            --arg timestamp "$TIMESTAMP" \
+            '{
+              embeds: [{
+                title: "🌱 新しいブランチが作成されました",
+                description: "\($actor) さんが新しいブランチを作成しました。",
+                color: 5763719,
+                fields: [
+                  {name: "作成者", value: $actor, inline: true},
+                  {name: "ブランチ名", value: $branch, inline: true},
+                  {name: "作成日時", value: $timestamp, inline: false}
+                ],
+                timestamp: $timestamp
+              }]
+            }')
+          curl -sf -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
+
+  notify-pr-opened:
+    if: github.event_name == 'pull_request' && github.event.action == 'opened'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Discordへプルリクエスト作成を通知
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ACTOR: ${{ github.event.pull_request.user.login }}
+          TITLE: ${{ github.event.pull_request.title }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          PAYLOAD=$(jq -n \
+            --arg actor "$ACTOR" \
+            --arg title "$TITLE" \
+            --arg range "$HEAD_BRANCH → $BASE_BRANCH" \
+            --arg url "$PR_URL" \
+            --arg timestamp "$TIMESTAMP" \
+            '{
+              embeds: [{
+                title: "🟡 プルリクエストが作成されました",
+                description: "\($actor) さんがプルリクエストを作成しました。レビューをお願いします。",
+                color: 16705372,
+                fields: [
+                  {name: "作成者", value: $actor, inline: true},
+                  {name: "PRタイトル", value: $title, inline: false},
+                  {name: "マージ元 → マージ先", value: $range, inline: false},
+                  {name: "リンク", value: $url, inline: false}
+                ],
+                timestamp: $timestamp
+              }]
+            }')
+          curl -sf -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
+
+  notify-pr-merged:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Discordへマージを通知（@everyone）
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MERGED_BY: ${{ github.event.pull_request.merged_by.login || github.actor }}
+          TITLE: ${{ github.event.pull_request.title }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+        run: |
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          PAYLOAD=$(jq -n \
+            --arg merged_by "$MERGED_BY" \
+            --arg title "$TITLE" \
+            --arg range "$HEAD_BRANCH → $BASE_BRANCH" \
+            --arg timestamp "$TIMESTAMP" \
+            '{
+              content: "@everyone",
+              allowed_mentions: { parse: ["everyone"] },
+              embeds: [{
+                title: "🟢 マージされました！",
+                description: "**⚠️ mainが更新されました。プルしてください**\n\n\($merged_by) さんが次のプルリクエストをマージしました。",
+                color: 65280,
+                fields: [
+                  {name: "マージした人", value: $merged_by, inline: true},
+                  {name: "PRタイトル", value: $title, inline: false},
+                  {name: "マージされたブランチ", value: $range, inline: false}
+                ],
+                timestamp: $timestamp
+              }]
+            }')
+          curl -sf -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
