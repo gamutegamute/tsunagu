@@ -87,7 +87,15 @@ def create_observation(payload: ObservationCreate) -> dict:
         shelter_id_val = payload.shelter_id or payload.shelter_code
         shelter = conn.execute("SELECT id FROM shelters WHERE id = %s;", (shelter_id_val,)).fetchone()
         if shelter is None:
-            raise HTTPException(status_code=404, detail="Shelter not found")
+            # 日本語コメント: 避難所が見つからない場合の詳細エラーレスポンス
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "Shelter not found",
+                    "message": f"避難所 '{shelter_id_val}' はデータベースに登録されていません。",
+                    "hint": "登録済みの避難所IDは GET /api/shelters から確認できます。"
+                }
+            )
 
         resolved_shelter_id = shelter["id"]
 
@@ -215,7 +223,16 @@ def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
     try:
         packet = parse_emergency_packet(payload.packet)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # 日本語コメント: 不正なLoRaパケットフォーマットに対する詳細エラー
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Invalid LoRa packet format",
+                "message": str(exc),
+                "expected_format": "version|shelter_code|packet_time|people_count|water_stock|status|request_code",
+                "example": "v1|AIT001|21:04|170|18|WARNING|REQ_WATER"
+            }
+        ) from exc
 
     packet_id = f"EP-{uuid4().hex}"
     with get_conn() as conn:

@@ -85,3 +85,51 @@ def test_create_emergency_packet_syncs_to_observations():
         assert obs["reporter_name"] == "LoRa Packet"
         assert "[LoRa]" in obs["memo"]
         assert obs["client_event_id"].startswith("LORA-")
+
+
+def test_seed_data_exists():
+    # 日本語コメント: シードデータがDBに存在しているか直接検証
+    with get_conn() as conn:
+        obs1 = conn.execute("SELECT * FROM observations WHERE id = 'OBS-demo-seed-1';").fetchone()
+        assert obs1 is not None
+        assert obs1["reporter_name"] == "デモ報告者A"
+
+        obs2 = conn.execute("SELECT * FROM observations WHERE id = 'OBS-demo-seed-2';").fetchone()
+        assert obs2 is not None
+        assert obs2["source"] == "emergency_packet"
+
+        ep = conn.execute("SELECT * FROM emergency_packets WHERE id = 'EP-demo-seed-2';").fetchone()
+        assert ep is not None
+
+
+def test_create_observation_shelter_not_found_error():
+    # 日本語コメント: 存在しない避難所コードによる404詳細エラー検証
+    payload = {
+        "shelter_id": "AIT999",
+        "client_event_id": str(uuid4()),
+        "people_count": 10,
+        "water_stock": 10,
+        "urgency": "NORMAL",
+        "memo": "",
+        "reporter_name": "Test",
+        "source": "web"
+    }
+    response = client.post("/api/observations", json=payload)
+    assert response.status_code == 404
+    data = response.json()
+    assert "detail" in data
+    assert data["detail"]["error"] == "Shelter not found"
+    assert "AIT999" in data["detail"]["message"]
+    assert "hint" in data["detail"]
+
+
+def test_create_emergency_packet_invalid_format_error():
+    # 日本語コメント: 不正なLoRaパケット送信による400詳細エラー検証
+    payload = {"packet": "invalid_packet_format"}
+    response = client.post("/api/emergency-packets", json=payload)
+    assert response.status_code == 400
+    data = response.json()
+    assert "detail" in data
+    assert data["detail"]["error"] == "Invalid LoRa packet format"
+    assert "expected_format" in data["detail"]
+    assert "example" in data["detail"]
