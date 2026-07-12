@@ -21,6 +21,7 @@ services:
       dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: postgresql://shelteros:shelteros@db:5432/shelteros
+      DEMO_SEED: "true"
     ports:
       - "8000:8000"
     volumes:
