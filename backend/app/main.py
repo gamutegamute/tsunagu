@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -53,8 +53,20 @@ def index() -> FileResponse:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health(response: Response) -> dict[str, str]:
+    # 日本語コメント: データベースへの疎通確認を行うヘルスチェック
+    db_status = "ok"
+    try:
+        with get_conn() as conn:
+            conn.execute("SELECT 1;").fetchone()
+    except Exception:
+        db_status = "error"
+
+    if db_status == "error":
+        response.status_code = 500
+        return {"status": "error", "database": "error"}
+
+    return {"status": "ok", "database": "ok"}
 
 
 @app.get("/api/shelters", response_model=list[Shelter])

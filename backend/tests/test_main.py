@@ -133,3 +133,12 @@ def test_create_emergency_packet_invalid_format_error():
     assert data["detail"]["error"] == "Invalid LoRa packet format"
     assert "expected_format" in data["detail"]
     assert "example" in data["detail"]
+
+
+def test_health_check_success():
+    # 日本語コメント: DB接続確認機能付きのヘルスチェックAPIの検証
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data["database"] == "ok"

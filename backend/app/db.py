@@ -103,49 +103,51 @@ def init_db() -> None:
             """
         )
         # 日本語でのシードデータ登録コメント: デモ用初期シードデータの追加
-        # 避難所A (AIT001) に通常報告 (web) のシードデータを追加
-        conn.execute(
-            """
-            INSERT INTO observations (
-                id, shelter_id, client_event_id, people_count, water_stock,
-                urgency, memo, observed_at, reporter_name, source
+        # 環境変数 DEMO_SEED が true の場合のみ挿入する
+        if os.getenv("DEMO_SEED", "false").lower() == "true":
+            # 避難所A (AIT001) に通常報告 (web) のシードデータを追加
+            conn.execute(
+                """
+                INSERT INTO observations (
+                    id, shelter_id, client_event_id, people_count, water_stock,
+                    urgency, memo, observed_at, reporter_name, source
+                )
+                VALUES (
+                    'OBS-demo-seed-1', 'AIT001', 'demo-event-seed-1', 45, 25,
+                    'NORMAL', '【デモデータ】現在、避難所は比較的安定しており、秩序が保たれています。',
+                    now() - interval '2 hours', 'デモ報告者A', 'web'
+                )
+                ON CONFLICT (client_event_id) DO NOTHING;
+                """
             )
-            VALUES (
-                'OBS-demo-seed-1', 'AIT001', 'demo-event-seed-1', 45, 25,
-                'NORMAL', '【デモデータ】現在、避難所は比較的安定しており、秩序が保たれています。',
-                now() - interval '2 hours', 'デモ報告者A', 'web'
+            # 避難所B (AIT002) にLoRaパケット受信ログ (emergency_packets) を追加
+            conn.execute(
+                """
+                INSERT INTO emergency_packets (
+                    id, version, shelter_code, shelter_id, packet_time,
+                    people_count, water_stock, status, request_code, raw_packet, received_at
+                )
+                VALUES (
+                    'EP-demo-seed-2', 'v1', 'AIT002', 'AIT002', '21:04',
+                    170, 18, 'WARNING', 'REQ_WATER',
+                    'v1|AIT002|21:04|170|18|WARNING|REQ_WATER', now() - interval '1 hour'
+                )
+                ON CONFLICT (id) DO NOTHING;
+                """
             )
-            ON CONFLICT (client_event_id) DO NOTHING;
-            """
-        )
-        # 避難所B (AIT002) にLoRaパケット受信ログ (emergency_packets) を追加
-        conn.execute(
-            """
-            INSERT INTO emergency_packets (
-                id, version, shelter_code, shelter_id, packet_time,
-                people_count, water_stock, status, request_code, raw_packet, received_at
+            # 避難所B (AIT002) の報告にLoRa受信データを同期
+            conn.execute(
+                """
+                INSERT INTO observations (
+                    id, shelter_id, client_event_id, people_count, water_stock,
+                    urgency, memo, observed_at, reporter_name, source
+                )
+                VALUES (
+                    'OBS-demo-seed-2', 'AIT002', 'LORA-demo-seed-2', 170, 18,
+                    'WARNING', '【デモデータ】[LoRa] Status: WARNING, Req: REQ_WATER',
+                    now() - interval '1 hour', 'LoRa Packet', 'emergency_packet'
+                )
+                ON CONFLICT (client_event_id) DO NOTHING;
+                """
             )
-            VALUES (
-                'EP-demo-seed-2', 'v1', 'AIT002', 'AIT002', '21:04',
-                170, 18, 'WARNING', 'REQ_WATER',
-                'v1|AIT002|21:04|170|18|WARNING|REQ_WATER', now() - interval '1 hour'
-            )
-            ON CONFLICT (id) DO NOTHING;
-            """
-        )
-        # 避難所B (AIT002) の報告にLoRa受信データを同期
-        conn.execute(
-            """
-            INSERT INTO observations (
-                id, shelter_id, client_event_id, people_count, water_stock,
-                urgency, memo, observed_at, reporter_name, source
-            )
-            VALUES (
-                'OBS-demo-seed-2', 'AIT002', 'LORA-demo-seed-2', 170, 18,
-                'WARNING', '【デモデータ】[LoRa] Status: WARNING, Req: REQ_WATER',
-                now() - interval '1 hour', 'LoRa Packet', 'emergency_packet'
-            )
-            ON CONFLICT (client_event_id) DO NOTHING;
-            """
-        )
         conn.commit()
