@@ -7,7 +7,7 @@ import DevPreview from "./DevPreview.jsx";
 import "./styles.css";
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/static/service-worker.js");
+  navigator.serviceWorker.register(`${import.meta.env.BASE_URL}service-worker.js`);
 }
 
 createRoot(document.getElementById("root")).render(
