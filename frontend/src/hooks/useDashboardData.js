@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { fetchDashboard, fetchEmergencyPackets } from "../api.js";
 import { loadJson } from "../utils/localJson.js";
 import { STORAGE_KEYS } from "../utils/storageKeys.js";
+import { recordDashboardSnapshot } from "../utils/shelterObservationHistory.js";
 
 /**
  * 本部ダッシュボード(避難所一覧・Emergency Packets)のデータを読み込むフック。
@@ -23,6 +24,7 @@ export function useDashboardData() {
     try {
       const items = await fetchDashboard();
       showAndCacheDashboard(items);
+      recordDashboardSnapshot(items);
       setEmergencyPackets(await fetchEmergencyPackets());
     } catch (error) {
       showAndCacheDashboard(loadJson(STORAGE_KEYS.cachedDashboard, []));
