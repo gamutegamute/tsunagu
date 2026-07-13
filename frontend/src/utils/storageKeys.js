@@ -5,4 +5,5 @@ export const STORAGE_KEYS = {
   pendingReports: "shelteros.pendingReports",
   cachedDashboard: "shelteros.cachedDashboard",
   reporterName: "shelteros.reporterName",
+  approverName: "shelteros.approverName",
 };
