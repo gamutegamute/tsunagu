@@ -14,6 +14,8 @@ class Urgency(StrEnum):
 
 
 class ShelterCreate(BaseModel):
+    # 日本語コメント: 避難所登録時に任意のIDを指定できるようにフィールドを追加
+    id: str | None = Field(default=None, min_length=1, max_length=50)
     name: str = Field(min_length=1, max_length=120)
     location: str = Field(default="", max_length=240)
 

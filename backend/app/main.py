@@ -48,7 +48,12 @@ if FRONTEND_DIR.exists():
 @app.get("/field-report", include_in_schema=False)
 @app.get("/dashboard", include_in_schema=False)
 @app.get("/dev-preview", include_in_schema=False)
-def index() -> FileResponse:
+@app.get("/incident", include_in_schema=False)
+@app.get("/history", include_in_schema=False)
+@app.get("/dashboard/timeline", include_in_schema=False)
+@app.get("/dashboard/shelters/{shelter_id}", include_in_schema=False)
+def index(shelter_id: str | None = None) -> FileResponse:
+    # 日本語コメント: SPAの各画面用ルートに対して index.html を返す
     return FileResponse(FRONTEND_DIR / "index.html")
 
 
@@ -77,8 +82,23 @@ def list_shelters() -> list[dict]:
 
 @app.post("/api/shelters", response_model=Shelter, status_code=201)
 def create_shelter(payload: ShelterCreate) -> dict:
-    shelter_id = f"SH-{uuid4().hex[:8].upper()}"
     with get_conn() as conn:
+        shelter_id = payload.id
+        if not shelter_id:
+            # 日本語コメント: ID指定がない場合は自動生成する
+            shelter_id = f"SH-{uuid4().hex[:8].upper()}"
+        else:
+            # 日本語コメント: 重複する避難所IDがあるかチェックする
+            existing = conn.execute("SELECT id FROM shelters WHERE id = %s;", (shelter_id,)).fetchone()
+            if existing is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "Shelter already exists",
+                        "message": f"避難所ID '{shelter_id}' はすでに登録されています。"
+                    }
+                )
+
         row = conn.execute(
             """
             INSERT INTO shelters (id, name, location)
