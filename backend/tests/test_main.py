@@ -10,7 +10,18 @@ def test_frontend_routes_return_index_html(tmp_path, monkeypatch):
     (tmp_path / "index.html").write_text("<html><body>ShelterOS</body></html>", encoding="utf-8")
     monkeypatch.setattr(main_module, "FRONTEND_DIR", tmp_path)
 
-    for path in ["/", "/field-report", "/dashboard", "/dev-preview", "/incident", "/history", "/dashboard/timeline", "/dashboard/shelters/AIT001"]:
+    frontend_routes = [
+        "/",
+        "/field-report",
+        "/dashboard",
+        "/dev-preview",
+        "/login",
+        "/incident",
+        "/history",
+        "/dashboard/timeline",
+        "/dashboard/shelters/AIT001",
+    ]
+    for path in frontend_routes:
         response = client.get(path)
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]

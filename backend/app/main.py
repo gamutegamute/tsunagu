@@ -48,6 +48,7 @@ if FRONTEND_DIR.exists():
 @app.get("/field-report", include_in_schema=False)
 @app.get("/dashboard", include_in_schema=False)
 @app.get("/dev-preview", include_in_schema=False)
+@app.get("/login", include_in_schema=False)
 @app.get("/incident", include_in_schema=False)
 @app.get("/history", include_in_schema=False)
 @app.get("/dashboard/timeline", include_in_schema=False)
