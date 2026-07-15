@@ -5,11 +5,11 @@ import IncidentCard from "../components/incident/IncidentCard.jsx";
 import ResolutionRequestModal from "../components/incident/ResolutionRequestModal.jsx";
 import { useIncidents } from "../hooks/useIncidents.js";
 import { useShelterList } from "../hooks/useShelterList.js";
-import { isResolved, describeIncidentDisplay } from "../utils/incidents.js";
+import { canRequestResolution, isResolved, describeIncidentDisplay } from "../utils/incidents.js";
 import { requestResolution } from "../utils/incidentStore.js";
 
 const TABS = [
-  { id: "unconfirmed", label: "未確認" },
+  { id: "unresolved", label: "未対応" },
   { id: "resolved", label: "対応済み" },
 ];
 
@@ -24,7 +24,7 @@ export default function IncidentPage() {
   const navigate = useNavigate();
   const shelters = useShelterList();
   const { incidents, refreshLocalState } = useIncidents();
-  const [activeTabId, setActiveTabId] = useState("unconfirmed");
+  const [activeTabId, setActiveTabId] = useState("unresolved");
   const [requestTargetIncident, setRequestTargetIncident] = useState(null);
 
   const visibleIncidents = incidents.filter((incident) =>
@@ -59,7 +59,7 @@ export default function IncidentPage() {
           {visibleIncidents.length === 0 && <p className="incident-empty-state">該当するインシデントはありません</p>}
           {visibleIncidents.map((incident) => {
             const { assigneeLabel, statusNote, resolutionInfo } = describeIncidentDisplay(incident);
-            const canRequestResolution = !isResolved(incident) && !statusNote;
+            const showResolutionRequestButton = canRequestResolution(incident);
             return (
               <IncidentCard
                 key={incident.id}
@@ -69,7 +69,7 @@ export default function IncidentPage() {
                 statusNote={statusNote}
                 resolutionInfo={resolutionInfo}
                 actions={
-                  canRequestResolution ? (
+                  showResolutionRequestButton ? (
                     <button
                       type="button"
                       className="primary-button incident-resolve-button"

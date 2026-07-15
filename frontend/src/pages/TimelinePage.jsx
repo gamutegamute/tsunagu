@@ -16,14 +16,14 @@ import { mergeEmergencyDataIntoDashboard } from "../utils/emergencyPacket.js";
 export default function TimelinePage() {
   const navigate = useNavigate();
   const shelters = useShelterList();
-  const { dashboardItems, reloadDashboard } = useDashboardData();
+  const { dashboardItems, emergencyPackets, reloadDashboard } = useDashboardData();
 
   useEffect(() => {
     reloadDashboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const shelterStatusList = mergeEmergencyDataIntoDashboard(dashboardItems, [], shelters);
+  const shelterStatusList = mergeEmergencyDataIntoDashboard(dashboardItems, emergencyPackets, shelters);
   const timelineEntries = shelterStatusList
     .filter((item) => item.latest_observation)
     .map((item) => ({ shelter: item.shelter, observation: item.latest_observation }))

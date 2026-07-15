@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { deriveIncidentsFromDashboard } from "./incidents.js";
+import { canRequestResolution, deriveIncidentsFromDashboard } from "./incidents.js";
 
 function makeDashboardItem({ latest_observation: observationOverrides, ...rest } = {}) {
   return {
@@ -48,5 +48,14 @@ describe("deriveIncidentsFromDashboard", () => {
     const items = [makeDashboardItem({ latest_observation: { memo: "" } })];
     const incidents = deriveIncidentsFromDashboard(items);
     expect(incidents).toHaveLength(0);
+  });
+
+  it("本部で確認済みでも未解決なら対応済み申請ができる", () => {
+    expect(canRequestResolution({ confirmStatus: "CONFIRMED", resolutionRequest: null, resolution: null })).toBe(true);
+  });
+
+  it("承認待ちまたは対応済みの場合は重ねて対応済み申請できない", () => {
+    expect(canRequestResolution({ resolutionRequest: { memo: "対応済み" }, resolution: null })).toBe(false);
+    expect(canRequestResolution({ resolutionRequest: null, resolution: { memo: "対応済み" } })).toBe(false);
   });
 });

@@ -19,7 +19,7 @@ export default function ShelterDetailPage() {
   const { shelterId } = useParams();
   const navigate = useNavigate();
   const shelters = useShelterList();
-  const { dashboardItems, reloadDashboard } = useDashboardData();
+  const { dashboardItems, emergencyPackets, reloadDashboard } = useDashboardData();
   const { incidents, refresh: refreshIncidents, refreshLocalState } = useIncidents();
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export default function ShelterDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const shelterStatusList = mergeEmergencyDataIntoDashboard(dashboardItems, [], shelters);
+  const shelterStatusList = mergeEmergencyDataIntoDashboard(dashboardItems, emergencyPackets, shelters);
   const shelterStatus = shelterStatusList.find((item) => item.shelter.id === shelterId);
   const shelterIncidents = incidents.filter((incident) => incident.shelter.id === shelterId);
   const history = getHistory(shelterId);

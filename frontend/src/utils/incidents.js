@@ -40,6 +40,11 @@ export function isPendingApproval(incident) {
   return Boolean(incident.resolutionRequest) && !incident.resolution;
 }
 
+/** 現場から対応済み申請を送れる状態かどうか。確認済みでも未解決なら申請できる。 */
+export function canRequestResolution(incident) {
+  return !isResolved(incident) && !isPendingApproval(incident);
+}
+
 function formatDateTime(iso) {
   return new Date(iso).toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
