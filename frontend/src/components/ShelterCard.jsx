@@ -17,13 +17,29 @@ function formatUpdatedAt(observedAtIsoString) {
   return `最終更新 ${time}`;
 }
 
-/** 避難所1件分の状況を表示するカード(Figmaの ShelterCard コンポーネントを再現)。 */
-export default function ShelterCard({ shelterStatus }) {
+/**
+ * 避難所1件分の状況を表示するカード(Figmaの ShelterCard コンポーネントを再現)。
+ * onClickを渡すと、決定事項16の詳細画面遷移のようにクリック可能なカードになる。
+ */
+export default function ShelterCard({ shelterStatus, onClick }) {
   const { shelter, latest_observation: observation, status, request_code: requestCode } = shelterStatus;
   const statusClassName = toStatusClassName(status);
+  const isClickable = typeof onClick === "function";
 
   return (
-    <article className={`shelter-card ${statusClassName}`}>
+    <article
+      className={`shelter-card ${statusClassName} ${isClickable ? "shelter-card-clickable" : ""}`}
+      onClick={onClick}
+      role={isClickable ? "button" : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      onKeyDown={
+        isClickable
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") onClick(event);
+            }
+          : undefined
+      }
+    >
       <div className="shelter-card-accent" aria-hidden="true" />
       <div className="shelter-card-body">
         <div className="shelter-card-title-row">

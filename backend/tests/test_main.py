@@ -10,7 +10,18 @@ def test_frontend_routes_return_index_html(tmp_path, monkeypatch):
     (tmp_path / "index.html").write_text("<html><body>ShelterOS</body></html>", encoding="utf-8")
     monkeypatch.setattr(main_module, "FRONTEND_DIR", tmp_path)
 
-    for path in ["/", "/field-report", "/dashboard", "/dev-preview"]:
+    frontend_routes = [
+        "/",
+        "/field-report",
+        "/dashboard",
+        "/dev-preview",
+        "/login",
+        "/incident",
+        "/history",
+        "/dashboard/timeline",
+        "/dashboard/shelters/AIT001",
+    ]
+    for path in frontend_routes:
         response = client.get(path)
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
@@ -142,3 +153,25 @@ def test_health_check_success():
     data = response.json()
     assert data["status"] == "ok"
     assert data["database"] == "ok"
+
+
+def test_create_shelter_with_custom_id():
+    # 日本語コメント: IDを指定して新規避難所を追加するテスト
+    custom_id = f"AIT-TEST-{uuid4().hex[:8].upper()}"
+    payload = {
+        "id": custom_id,
+        "name": "テスト避難所",
+        "location": "テスト場所"
+    }
+    response = client.post("/api/shelters", json=payload)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["id"] == custom_id
+    assert data["name"] == "テスト避難所"
+
+    # 重複する避難所IDを登録しようとして400エラーになるテスト (日本語コメント)
+    response_duplicate = client.post("/api/shelters", json=payload)
+    assert response_duplicate.status_code == 400
+    data_dup = response_duplicate.json()
+    assert data_dup["detail"]["error"] == "Shelter already exists"
+    assert custom_id in data_dup["detail"]["message"]

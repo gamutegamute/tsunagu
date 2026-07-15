@@ -6,4 +6,9 @@ export const STORAGE_KEYS = {
   cachedDashboard: "shelteros.cachedDashboard",
   reporterName: "shelteros.reporterName",
   approverName: "shelteros.approverName",
+  activeShelter: "shelteros.activeShelter",
+  sentReportHistory: "shelteros.sentReportHistory",
+  incidentStates: "shelteros.incidentStates",
+  shelterCapacities: "shelteros.shelterCapacities",
+  shelterObservationHistory: "shelteros.shelterObservationHistory",
 };

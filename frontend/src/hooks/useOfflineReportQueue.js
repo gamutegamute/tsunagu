@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createObservation } from "../api.js";
 import { loadJson } from "../utils/localJson.js";
 import { STORAGE_KEYS } from "../utils/storageKeys.js";
+import { addSentReportToHistory } from "../utils/sentReportHistory.js";
 
 function readPendingReportsFromStorage() {
   return loadJson(STORAGE_KEYS.pendingReports, []);
@@ -37,6 +38,11 @@ export function useOfflineReportQueue() {
     for (const report of queue) {
       try {
         await createObservation(report);
+        addSentReportToHistory({
+          shelterId: report.shelter_id ?? report.shelter_code,
+          urgency: report.urgency,
+          observedAt: report.observed_at,
+        });
       } catch (error) {
         reportsStillPending.push(report);
       }

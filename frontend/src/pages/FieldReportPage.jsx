@@ -1,10 +1,13 @@
 import NetworkModeSwitcher from "../components/NetworkModeSwitcher.jsx";
 import FieldReportForm from "../components/FieldReportForm.jsx";
+import FieldReportNavButtons from "../components/FieldReportNavButtons.jsx";
 import { useShelterList } from "../hooks/useShelterList.js";
 import { useNetworkMode } from "../hooks/useNetworkMode.js";
 import { useOfflineReportQueue } from "../hooks/useOfflineReportQueue.js";
 import { createObservation } from "../api.js";
 import { STORAGE_KEYS } from "../utils/storageKeys.js";
+import { setActiveShelter } from "../utils/activeShelter.js";
+import { addSentReportToHistory } from "../utils/sentReportHistory.js";
 
 /**
  * 現場報告画面(モバイル向け、/field-report)。
@@ -34,6 +37,9 @@ export default function FieldReportPage() {
       localStorage.setItem(STORAGE_KEYS.reporterName, trimmedReporterName);
     }
 
+    // 決定事項23: 避難所を選んで報告するたびに「アクティブ避難所」を更新する
+    setActiveShelter(shelterId);
+
     const payload = {
       reporter_name: trimmedReporterName,
       shelter_id: shelterId,
@@ -49,6 +55,7 @@ export default function FieldReportPage() {
     if (isOnline) {
       try {
         await createObservation(payload);
+        addSentReportToHistory({ shelterId, urgency, observedAt: payload.observed_at });
       } catch (error) {
         addReportToPendingQueue(payload);
       }
@@ -64,7 +71,10 @@ export default function FieldReportPage() {
           <h1>ShelterOS</h1>
           <p>通信が途絶えても、現場の状況は途絶えない。</p>
         </div>
-        <NetworkModeSwitcher networkMode={networkMode} onChangeMode={setNetworkMode} />
+        <div className="topbar-right-group">
+          <FieldReportNavButtons />
+          <NetworkModeSwitcher networkMode={networkMode} onChangeMode={setNetworkMode} />
+        </div>
       </header>
 
       <main className="layout-mobile">
