@@ -24,9 +24,8 @@ export default function AddShelterModal({ onCancel, onCreated }) {
     setIsSubmitting(true);
     setErrorMessage("");
     try {
-      // バックエンドは現状クライアント指定のIDを受け付けず、サーバー側で自動採番する
-      // (申し送り事項を参照)。入力されたIDはこの端末の記録用に保持しておく。
-      const created = await createShelter({ name: trimmedName, requested_id: shelterId.trim() || undefined });
+      // バックエンドはidを指定すればそのIDで登録し、未指定ならサーバー側で自動採番する。
+      const created = await createShelter({ name: trimmedName, id: shelterId.trim() || undefined });
       if (capacity.trim()) {
         setCapacity(created.id, Number(capacity));
       }

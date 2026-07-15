@@ -8,10 +8,14 @@ import { getIncidentState } from "./incidentStore.js";
  * 各避難所の最新報告にメモが入っていれば、それを1件のIncidentとみなす
  * (新しい報告が来るとメモが空でも古いIncidentは一覧から消える暫定挙動。
  *  詳細は申し送り事項を参照)。
+ *
+ * Emergency Packet(source === "emergency_packet")は現場の状態報告であり、
+ * 現場が気づいた問題(Incident)ではないため抽出対象から除外する。
  */
 export function deriveIncidentsFromDashboard(shelterStatusList) {
   return shelterStatusList
     .filter((item) => item.latest_observation && item.latest_observation.memo && item.latest_observation.memo.trim())
+    .filter((item) => item.latest_observation.source !== "emergency_packet")
     .map((item) => {
       const observation = item.latest_observation;
       const localState = getIncidentState(observation.id);
