@@ -246,8 +246,24 @@ def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
             }
         ) from exc
 
-    packet_id = f"EP-{uuid4().hex}"
+    # 日本語コメント: raw_packet と受信日 (JST) を用いて一意な ID を生成し、同じ日の重複登録を防止する
+    from datetime import datetime, timezone, timedelta
+    import hashlib
+    jst = timezone(timedelta(hours=9))
+    now_jst = datetime.now(jst)
+    received_date_jst = now_jst.strftime("%Y-%m-%d")
+
+    packet_data_str = f"{payload.packet}{received_date_jst}"
+    packet_hash = hashlib.sha256(packet_data_str.encode("utf-8")).hexdigest()
+    packet_id = f"EP-{packet_hash[:16]}"
+
     with get_conn() as conn:
+        # 日本語コメント: 重複するパケット受信ログがあるか確認する
+        existing_ep = conn.execute("SELECT * FROM emergency_packets WHERE id = %s;", (packet_id,)).fetchone()
+        if existing_ep is not None:
+            # すでに同一パケットが登録済みの場合は、そのレコードを返す (冪等性)
+            return existing_ep
+
         shelter = conn.execute("SELECT id FROM shelters WHERE id = %s;", (packet.shelter_code,)).fetchone()
         shelter_id = shelter["id"] if shelter is not None else None
 

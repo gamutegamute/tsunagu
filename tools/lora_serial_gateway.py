@@ -19,11 +19,15 @@ def post_packet(api_url: str, packet: str) -> None:
 
 
 def run_stdin(api_url: str) -> None:
+    # 日本語コメント: 標準入力モードでも例外発生時に停止しないよう try-except を追加 (KeyboardInterrupt等は通す)
     for line in sys.stdin:
         packet = line.strip()
         if packet:
-            post_packet(api_url, packet)
-            print(f"posted: {packet}", flush=True)
+            try:
+                post_packet(api_url, packet)
+                print(f"posted: {packet}", flush=True)
+            except Exception as exc:
+                print(f"failed: {packet} ({exc})", flush=True)
 
 
 def run_serial(api_url: str, port: str, baud: int) -> None:
@@ -40,7 +44,8 @@ def run_serial(api_url: str, port: str, baud: int) -> None:
             try:
                 post_packet(api_url, line)
                 print(f"posted: {line}", flush=True)
-            except (HTTPError, URLError, TimeoutError) as exc:
+            except Exception as exc:
+                # 日本語コメント: すべての一般例外をキャッチして中継を継続する (KeyboardInterruptなどは通す)
                 print(f"failed: {line} ({exc})", flush=True)
                 time.sleep(1)
 
