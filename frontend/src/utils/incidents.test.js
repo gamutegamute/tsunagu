@@ -10,7 +10,7 @@ function makeDashboardItem({ latest_observation: observationOverrides, ...rest }
       id: "OBS-001",
       memo: "水が不足しています",
       observed_at: "2026-07-15T00:00:00Z",
-      source: "field_report",
+      source: "web",
       ...observationOverrides,
     },
   };
@@ -21,7 +21,7 @@ describe("deriveIncidentsFromDashboard", () => {
     localStorage.clear();
   });
 
-  it("メモ入りの現場報告(field_report)をIncidentとして抽出する", () => {
+  it("メモ入りの現場報告(web)をIncidentとして抽出する", () => {
     const items = [makeDashboardItem()];
     const incidents = deriveIncidentsFromDashboard(items);
     expect(incidents).toHaveLength(1);
@@ -34,14 +34,14 @@ describe("deriveIncidentsFromDashboard", () => {
     expect(incidents).toHaveLength(0);
   });
 
-  it("emergency_packetとfield_reportが混在する場合はfield_reportのみ抽出する", () => {
+  it("emergency_packetとwebが混在する場合はwebのみ抽出する", () => {
     const items = [
       makeDashboardItem({ latest_observation: { id: "OBS-EP", source: "emergency_packet" } }),
-      makeDashboardItem({ latest_observation: { id: "OBS-FR", source: "field_report" } }),
+      makeDashboardItem({ latest_observation: { id: "OBS-WEB", source: "web" } }),
     ];
     const incidents = deriveIncidentsFromDashboard(items);
     expect(incidents).toHaveLength(1);
-    expect(incidents[0].id).toBe("OBS-FR");
+    expect(incidents[0].id).toBe("OBS-WEB");
   });
 
   it("メモが空の報告は元々除外される(既存挙動の確認)", () => {
