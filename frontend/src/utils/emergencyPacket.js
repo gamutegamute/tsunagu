@@ -4,12 +4,16 @@
  * 報告者名・メモはEmergency Packetの仕様上そもそも含まれないため、
  * source を "emergency_packet" にしてShelterCard側の注記表示に委ねる。
  */
-function packetToShelterStatus(packet, shelterName) {
+export function packetToShelterStatus(packet, shelterName) {
   return {
     shelter: { id: packet.shelter_id ?? packet.shelter_code, name: shelterName ?? packet.shelter_code },
     latest_observation: {
+      id: packet.id,
       people_count: packet.people_count,
       water_stock: packet.water_stock,
+      urgency: packet.status,
+      memo: "",
+      reporter_name: "",
       observed_at: packet.received_at,
       source: "emergency_packet",
     },

@@ -35,3 +35,10 @@ export function createObservation(payload) {
     body: JSON.stringify(payload),
   });
 }
+
+export function createShelter(payload) {
+  return api("/api/shelters", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
