@@ -267,28 +267,22 @@ def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
             }
         ) from exc
 
-    # 日本語コメント: raw_packet と受信日 (JST) を用いて一意な ID を生成し、同じ日の重複登録を防止する
+    # 日本語コメント: 正規化された raw_packet と受信日 (JST) を用いて一意な ID を生成し、同じ日の重複登録を防止する
     from datetime import datetime, timezone, timedelta
     import hashlib
     jst = timezone(timedelta(hours=9))
     now_jst = datetime.now(jst)
     received_date_jst = now_jst.strftime("%Y-%m-%d")
 
-    packet_data_str = f"{payload.packet}{received_date_jst}"
+    packet_data_str = f"{packet.raw_packet}{received_date_jst}"
     packet_hash = hashlib.sha256(packet_data_str.encode("utf-8")).hexdigest()
     packet_id = f"EP-{packet_hash[:16]}"
 
     with get_conn() as conn:
-        # 日本語コメント: 重複するパケット受信ログがあるか確認する
-        existing_ep = conn.execute("SELECT * FROM emergency_packets WHERE id = %s;", (packet_id,)).fetchone()
-        if existing_ep is not None:
-            # すでに同一パケットが登録済みの場合は、そのレコードを返す (冪等性)
-            return existing_ep
-
         shelter = conn.execute("SELECT id FROM shelters WHERE id = %s;", (packet.shelter_code,)).fetchone()
         shelter_id = shelter["id"] if shelter is not None else None
 
-        # LoRa親機から届いた最低限の情報を、通常報告とは別の受信ログとして残す。
+        # 日本語コメント: ON CONFLICT DO UPDATE を用いて、同時実行時に重複エラーが発生するのを防止する
         row = conn.execute(
             """
             INSERT INTO emergency_packets (
@@ -296,6 +290,7 @@ def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
                 people_count, water_stock, status, request_code, raw_packet
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET raw_packet = EXCLUDED.raw_packet
             RETURNING *;
             """,
             (
@@ -348,35 +343,31 @@ def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
             packet_hash = hashlib.sha256(packet_data_str.encode("utf-8")).hexdigest()
             client_event_id = f"LORA-{packet_hash[:16]}"
 
-            # 重複チェック
-            existing_obs = conn.execute(
-                "SELECT id FROM observations WHERE client_event_id = %s;", (client_event_id,)
-            ).fetchone()
-
-            if existing_obs is None:
-                observation_id = f"OBS-{uuid4().hex}"
-                memo = f"[LoRa] Status: {packet.status}, Req: {packet.request_code}"
-                conn.execute(
-                    """
-                    INSERT INTO observations (
-                        id, shelter_id, client_event_id, people_count, water_stock,
-                        urgency, memo, observed_at, reporter_name, source
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        observation_id,
-                        shelter_id,
-                        client_event_id,
-                        packet.people_count,
-                        packet.water_stock,
-                        urgency,
-                        memo,
-                        observed_at,
-                        "LoRa Packet",
-                        "emergency_packet",
-                    ),
+            # 日本語コメント: observations への同期も ON CONFLICT DO NOTHING を用いて同時実行時の重複エラーを防ぐ
+            observation_id = f"OBS-{uuid4().hex}"
+            memo = f"[LoRa] Status: {packet.status}, Req: {packet.request_code}"
+            conn.execute(
+                """
+                INSERT INTO observations (
+                    id, shelter_id, client_event_id, people_count, water_stock,
+                    urgency, memo, observed_at, reporter_name, source
                 )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (client_event_id) DO NOTHING;
+                """,
+                (
+                    observation_id,
+                    shelter_id,
+                    client_event_id,
+                    packet.people_count,
+                    packet.water_stock,
+                    urgency,
+                    memo,
+                    observed_at,
+                    "LoRa Packet",
+                    "emergency_packet",
+                ),
+            )
 
         conn.commit()
         return row
