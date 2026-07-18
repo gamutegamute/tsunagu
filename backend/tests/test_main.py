@@ -153,8 +153,6 @@ def test_health_check_success():
     data = response.json()
     assert data["status"] == "ok"
     assert data["database"] == "ok"
-
-
 def test_create_shelter_with_custom_id():
     # 日本語コメント: IDを指定して新規避難所を追加するテスト
     custom_id = f"AIT-TEST-{uuid4().hex[:8].upper()}"
@@ -175,3 +173,68 @@ def test_create_shelter_with_custom_id():
     data_dup = response_duplicate.json()
     assert data_dup["detail"]["error"] == "Shelter already exists"
     assert custom_id in data_dup["detail"]["message"]
+
+
+def test_create_emergency_packet_deduplication():
+    # 日本語コメント: 同一パケット再送時の重複排除・冪等性検証テスト
+    packet_data = "v1|AIT001|10:20|85|12|WARNING|REQ_WATER"
+    payload = {"packet": packet_data}
+
+    # 1回目のPOST
+    response1 = client.post("/api/emergency-packets", json=payload)
+    assert response1.status_code == 201
+    data1 = response1.json()
+    packet_id1 = data1["id"]
+
+    # 2回目のPOST (同一パケット)
+    response2 = client.post("/api/emergency-packets", json=payload)
+    assert response2.status_code == 201
+    data2 = response2.json()
+    packet_id2 = data2["id"]
+
+    # 返却されるIDが同一であることを確認
+    assert packet_id1 == packet_id2
+
+    # データベースに重複して登録されていないか確認 (日本語コメント)
+    with get_conn() as conn:
+        # emergency_packets に1件のみ存在すること
+        eps = conn.execute("SELECT * FROM emergency_packets WHERE id = %s;", (packet_id1,)).fetchall()
+        assert len(eps) == 1
+
+        # observations も重複せず1件のみ存在すること
+        obss = conn.execute("SELECT * FROM observations WHERE shelter_id = 'AIT001' AND source = 'emergency_packet' ORDER BY created_at DESC;").fetchall()
+        # テスト実行順序により他のテストが LoRa 報告をインサートしている可能性があるため、
+        # 今回のパケットに対応する observations の client_event_id を特定してカウントする
+        # （LORA- で始まる client_event_id での重複チェック）
+        lora_obs = [obs for obs in obss if obs["people_count"] == 85 and obs["water_stock"] == 12]
+        assert len(lora_obs) == 1
+
+
+def test_create_emergency_packet_concurrent():
+    # 日本語コメント: 同一パケットの同時リクエスト時に1件のみ保存され、すべて201が返ることを検証 (並行テスト)
+    import concurrent.futures
+    packet_data = "v1|AIT001|11:00|90|15|WARNING|REQ_WATER"
+    payload = {"packet": packet_data}
+
+    def send_request():
+        return client.post("/api/emergency-packets", json=payload)
+
+    # 5スレッドで同時にリクエストを送信
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(send_request) for _ in range(5)]
+        responses = [f.result() for f in futures]
+
+    # すべてのレスポンスが 201 Created であることを確認
+    for r in responses:
+        assert r.status_code == 201
+
+    # 返却された ID がすべて同一であることを確認 (日本語コメント)
+    packet_ids = [r.json()["id"] for r in responses]
+    assert len(set(packet_ids)) == 1
+
+    packet_id = packet_ids[0]
+
+    # DBに1件のみ存在することを確認
+    with get_conn() as conn:
+        eps = conn.execute("SELECT * FROM emergency_packets WHERE id = %s;", (packet_id,)).fetchall()
+        assert len(eps) == 1
