@@ -70,7 +70,7 @@ export default function FieldReportPage() {
     <>
       <header className="topbar">
         <div>
-          <h1>ShelterOS</h1>
+          <h1>TSUNAGU</h1>
           <p>通信が途絶えても、現場の状況は途絶えない。</p>
         </div>
         <div className="topbar-right-group">

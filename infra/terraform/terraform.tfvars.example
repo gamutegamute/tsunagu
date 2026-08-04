@@ -1,5 +1,5 @@
 aws_region            = "ap-northeast-1"
-cognito_domain_prefix = "shelteros-your-team"
+cognito_domain_prefix = "tsunagu-your-team"
 google_client_id      = "set-with-TF_VAR_google_client_id"
 google_client_secret  = "set-with-TF_VAR_google_client_secret"
 

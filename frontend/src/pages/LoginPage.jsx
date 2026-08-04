@@ -24,7 +24,7 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <header className="topbar">
-        <h1>ShelterOS</h1>
+        <h1>TSUNAGU</h1>
         <span className="login-header-label">本部・現場職員ログイン</span>
       </header>
 
@@ -33,7 +33,7 @@ export default function LoginPage() {
           <div className="login-brand">
             <div className="login-logo">
               <span className="login-logo-mark">S</span>
-              <span className="login-logo-text">ShelterOS</span>
+              <span className="login-logo-text">TSUNAGU</span>
             </div>
             <p className="login-subtitle">登録済みのGoogleアカウントでログイン</p>
           </div>

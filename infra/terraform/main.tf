@@ -10,7 +10,7 @@ data "aws_subnets" "default" {
 }
 
 resource "aws_ecr_repository" "app" {
-  name                 = "shelteros"
+  name                 = "tsunagu"
   image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {
@@ -50,7 +50,7 @@ resource "random_password" "gateway" {
 }
 
 resource "aws_security_group" "app" {
-  name        = "shelteros-app"
+  name        = "tsunagu-app"
   description = "ECS Express tasks"
   vpc_id      = data.aws_vpc.default.id
 
@@ -63,8 +63,8 @@ resource "aws_security_group" "app" {
 }
 
 resource "aws_security_group" "database" {
-  name        = "shelteros-database"
-  description = "PostgreSQL from ShelterOS tasks"
+  name        = "tsunagu-database"
+  description = "PostgreSQL from TSUNAGU tasks"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -76,20 +76,20 @@ resource "aws_security_group" "database" {
 }
 
 resource "aws_db_subnet_group" "main" {
-  name       = "shelteros"
+  name       = "tsunagu"
   subnet_ids = data.aws_subnets.default.ids
 }
 
 resource "aws_db_instance" "main" {
-  identifier                 = "shelteros"
+  identifier                 = "tsunagu"
   engine                     = "postgres"
   engine_version             = "16"
   instance_class             = "db.t4g.micro"
   allocated_storage          = 20
   max_allocated_storage      = 50
   storage_encrypted          = true
-  db_name                    = "shelteros"
-  username                   = "shelteros"
+  db_name                    = "tsunagu"
+  username                   = "tsunagu"
   password                   = random_password.database.result
   db_subnet_group_name       = aws_db_subnet_group.main.name
   vpc_security_group_ids     = [aws_security_group.database.id]
@@ -102,7 +102,7 @@ resource "aws_db_instance" "main" {
 }
 
 locals {
-  database_url = "postgresql://shelteros:${random_password.database.result}@${aws_db_instance.main.address}:5432/shelteros"
+  database_url = "postgresql://tsunagu:${random_password.database.result}@${aws_db_instance.main.address}:5432/tsunagu"
   callback_urls = concat(
     ["http://localhost:8000/api/auth/callback"],
     var.application_base_url == "" ? [] : ["${trimsuffix(var.application_base_url, "/")}/api/auth/callback"]
@@ -114,25 +114,25 @@ locals {
 }
 
 resource "aws_ssm_parameter" "database_url" {
-  name  = "/shelteros/production/database-url"
+  name  = "/tsunagu/production/database-url"
   type  = "SecureString"
   value = local.database_url
 }
 
 resource "aws_ssm_parameter" "session_secret" {
-  name  = "/shelteros/production/session-secret"
+  name  = "/tsunagu/production/session-secret"
   type  = "SecureString"
   value = random_password.session.result
 }
 
 resource "aws_ssm_parameter" "gateway_key" {
-  name  = "/shelteros/production/gateway-api-key"
+  name  = "/tsunagu/production/gateway-api-key"
   type  = "SecureString"
   value = random_password.gateway.result
 }
 
 resource "aws_cognito_user_pool" "main" {
-  name = "shelteros"
+  name = "tsunagu"
 
   username_attributes      = ["email"]
   auto_verified_attributes = ["email"]
@@ -161,7 +161,7 @@ resource "aws_cognito_identity_provider" "google" {
 }
 
 resource "aws_cognito_user_pool_client" "web" {
-  name         = "shelteros-web"
+  name         = "tsunagu-web"
   user_pool_id = aws_cognito_user_pool.main.id
 
   generate_secret                      = false
@@ -180,12 +180,12 @@ resource "aws_cognito_user_pool_domain" "main" {
 }
 
 resource "aws_cloudwatch_log_group" "app" {
-  name              = "/ecs/shelteros"
+  name              = "/ecs/tsunagu"
   retention_in_days = 7
 }
 
 resource "aws_iam_role" "execution" {
-  name = "shelteros-ecs-execution"
+  name = "tsunagu-ecs-execution"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -218,7 +218,7 @@ resource "aws_iam_role_policy" "execution_secrets" {
 }
 
 resource "aws_iam_role" "infrastructure" {
-  name = "shelteros-ecs-express-infrastructure"
+  name = "tsunagu-ecs-express-infrastructure"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -236,7 +236,7 @@ resource "aws_iam_role_policy_attachment" "infrastructure" {
 
 resource "aws_ecs_express_gateway_service" "app" {
   count                   = var.create_service ? 1 : 0
-  service_name            = "shelteros"
+  service_name            = "tsunagu"
   execution_role_arn      = aws_iam_role.execution.arn
   infrastructure_role_arn = aws_iam_role.infrastructure.arn
   health_check_path       = "/health"

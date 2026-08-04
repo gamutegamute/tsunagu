@@ -112,24 +112,41 @@ def run_serial(queue: PacketQueue, api_url: str, api_key: str, port: str, baud: 
             time.sleep(3)
 
 
+def _environment_value(new_name: str, legacy_name: str, default: str = "") -> str:
+    return os.getenv(new_name) or os.getenv(legacy_name) or default
+
+
+def _default_queue_path() -> Path:
+    configured = _environment_value("TSUNAGU_QUEUE_DB", "SHELTEROS_QUEUE_DB")
+    if configured:
+        return Path(configured)
+    legacy_path = Path(".shelteros/lora_gateway_queue.db")
+    new_path = Path(".tsunagu/lora_gateway_queue.db")
+    return legacy_path if legacy_path.exists() and not new_path.exists() else new_path
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Forward T-Beam Emergency Packets to ShelterOS.")
+    parser = argparse.ArgumentParser(description="Forward T-Beam Emergency Packets to TSUNAGU.")
     parser.add_argument(
         "--api-url",
-        default=os.getenv("SHELTEROS_API_URL", "http://localhost:8000/api/emergency-packets"),
+        default=_environment_value(
+            "TSUNAGU_API_URL",
+            "SHELTEROS_API_URL",
+            "http://localhost:8000/api/emergency-packets",
+        ),
     )
     parser.add_argument("--port", help="Windows COM port such as COM3. If omitted, read from stdin.")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument(
         "--queue-db",
         type=Path,
-        default=Path(os.getenv("SHELTEROS_QUEUE_DB", ".shelteros/lora_gateway_queue.db")),
+        default=_default_queue_path(),
     )
     args = parser.parse_args()
 
-    api_key = os.getenv("SHELTEROS_GATEWAY_API_KEY", "")
+    api_key = _environment_value("TSUNAGU_GATEWAY_API_KEY", "SHELTEROS_GATEWAY_API_KEY")
     if not api_key:
-        raise SystemExit("SHELTEROS_GATEWAY_API_KEY is required")
+        raise SystemExit("TSUNAGU_GATEWAY_API_KEY is required")
 
     queue = PacketQueue(args.queue_db)
     if args.port:

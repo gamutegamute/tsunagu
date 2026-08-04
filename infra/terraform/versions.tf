@@ -18,7 +18,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      Project     = "ShelterOS"
+      Project     = "TSUNAGU"
       Environment = "production"
       ManagedBy   = "Terraform"
     }

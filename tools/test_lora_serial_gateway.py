@@ -22,3 +22,10 @@ def test_successful_packet_is_removed(tmp_path, monkeypatch):
 
     assert gateway.flush_queue(queue, "https://example.test", "key") is True
     assert queue.count() == 0
+
+
+def test_new_environment_variable_takes_priority(monkeypatch):
+    monkeypatch.setenv("TSUNAGU_API_URL", "https://new.example")
+    monkeypatch.setenv("SHELTEROS_API_URL", "https://legacy.example")
+
+    assert gateway._environment_value("TSUNAGU_API_URL", "SHELTEROS_API_URL") == "https://new.example"

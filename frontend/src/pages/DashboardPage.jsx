@@ -31,7 +31,7 @@ export default function DashboardPage() {
     <>
       <header className="topbar">
         <div>
-          <h1>ShelterOS</h1>
+          <h1>TSUNAGU</h1>
           <p>本部ダッシュボード</p>
         </div>
         <AuthStatus />

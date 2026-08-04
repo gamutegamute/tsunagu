@@ -1,4 +1,4 @@
-const CACHE_NAME = "shelteros-v0.9";
+const CACHE_NAME = "tsunagu-v0.9";
 const APP_SHELL = ["/", "/static/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

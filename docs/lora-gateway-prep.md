@@ -19,7 +19,7 @@ v1|AIT001|21:04|170|18|WARNING|REQ_WATER
 
 ## 手動入力での確認
 
-Docker で ShelterOS を起動したあと、PowerShell で以下を実行します。
+Docker で TSUNAGU を起動したあと、PowerShell で以下を実行します。
 
 ```powershell
 .\tools\post_emergency_packet.ps1

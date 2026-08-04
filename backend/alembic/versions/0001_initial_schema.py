@@ -1,4 +1,4 @@
-"""Create the ShelterOS schema and report trust fields."""
+"""Create the TSUNAGU schema and report trust fields."""
 
 from alembic import op
 

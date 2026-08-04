@@ -18,7 +18,7 @@ def authenticated_hq_client():
     client.cookies.clear()
     login = client.post("/api/auth/dev-login", json={"role": "hq", "name": "Test HQ"})
     assert login.status_code == 204
-    client.headers["X-CSRF-Token"] = client.cookies.get("shelteros_csrf")
+    client.headers["X-CSRF-Token"] = client.cookies.get("tsunagu_csrf")
     client.headers["X-Gateway-Key"] = "test-gateway-key"
     yield
     client.headers.pop("X-CSRF-Token", None)
@@ -61,7 +61,7 @@ def test_production_rejects_development_auth_mode(monkeypatch):
 
 
 def test_frontend_routes_return_index_html(tmp_path, monkeypatch):
-    (tmp_path / "index.html").write_text("<html><body>ShelterOS</body></html>", encoding="utf-8")
+    (tmp_path / "index.html").write_text("<html><body>TSUNAGU</body></html>", encoding="utf-8")
     monkeypatch.setattr(main_module, "FRONTEND_DIR", tmp_path)
     routes = [
         "/",
@@ -94,7 +94,7 @@ def test_dashboard_requires_hq_login():
 
 def test_removed_allowlist_user_loses_access(monkeypatch):
     monkeypatch.setenv("AUTH_MODE", "cognito")
-    monkeypatch.setenv("AUTH_HQ_EMAILS", "local-hq@shelteros.local")
+    monkeypatch.setenv("AUTH_HQ_EMAILS", "local-hq@tsunagu.local")
     assert client.get("/api/auth/me").status_code == 200
 
     monkeypatch.setenv("AUTH_HQ_EMAILS", "")
@@ -104,7 +104,7 @@ def test_removed_allowlist_user_loses_access(monkeypatch):
 def test_field_user_cannot_create_shelter():
     client.cookies.clear()
     login = client.post("/api/auth/dev-login", json={"role": "field", "name": "Field User"})
-    client.headers["X-CSRF-Token"] = login.cookies.get("shelteros_csrf")
+    client.headers["X-CSRF-Token"] = login.cookies.get("tsunagu_csrf")
     assert client.post("/api/shelters", json={"name": "Forbidden Shelter"}).status_code == 403
     assert client.get("/api/dashboard").status_code == 403
 
@@ -155,7 +155,7 @@ def test_hq_can_verify_observation():
     )
     assert response.status_code == 200
     assert response.json()["verification_status"] == "VERIFIED"
-    assert response.json()["verified_by"] == "local-hq@shelteros.local"
+    assert response.json()["verified_by"] == "local-hq@tsunagu.local"
 
 
 def test_create_shelter_with_custom_id():

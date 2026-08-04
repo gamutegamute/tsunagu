@@ -18,7 +18,7 @@ async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (options.body) headers["Content-Type"] = "application/json";
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
-    const csrfToken = readCookie("shelteros_csrf");
+    const csrfToken = readCookie("tsunagu_csrf");
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
   }
 

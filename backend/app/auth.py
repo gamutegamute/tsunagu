@@ -16,9 +16,9 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 
-SESSION_COOKIE = "shelteros_session"
-CSRF_COOKIE = "shelteros_csrf"
-OAUTH_COOKIE = "shelteros_oauth"
+SESSION_COOKIE = "tsunagu_session"
+CSRF_COOKIE = "tsunagu_csrf"
+OAUTH_COOKIE = "tsunagu_oauth"
 
 
 @dataclass(frozen=True)
@@ -264,7 +264,7 @@ def dev_login(payload: DevLoginRequest) -> Response:
     _set_session(
         response,
         AuthUser(
-            email=f"local-{payload.role}@shelteros.local",
+            email=f"local-{payload.role}@tsunagu.local",
             name=payload.name.strip() or "Local User",
             role=payload.role,
         ),

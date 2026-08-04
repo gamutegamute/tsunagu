@@ -1,14 +1,14 @@
-﻿# ShelterOS v0.8
+﻿# TSUNAGU v0.9
 
 Offline First Disaster Observability Platform
 
 > 通信が途絶えても、現場の状況は途絶えない。
 
-## 1. What Is ShelterOS?
+## 1. What Is TSUNAGU?
 
-ShelterOS は、災害時の避難所・現場状況を記録、標準化、共有、観測するための Offline First 型プラットフォームです。
+TSUNAGU は、災害時の避難所・現場状況を記録、標準化、共有、観測するための Offline First 型プラットフォームです。
 
-ShelterOS は、単なる避難所管理アプリや物資管理アプリではありません。災害時の意思決定を支えるために、現場情報を止めずに集める「現場情報インフラ」を目指します。
+TSUNAGU は、単なる避難所管理アプリや物資管理アプリではありません。災害時の意思決定を支えるために、現場情報を止めずに集める「現場情報インフラ」を目指します。
 
 ## 2. Problem
 
@@ -23,13 +23,13 @@ ShelterOS は、単なる避難所管理アプリや物資管理アプリでは�
 
 現在も多くの現場では、紙、電話、FAX、Excel による報告が中心であり、情報共有の遅れが意思決定の遅れにつながります。
 
-ShelterOS が解決したい本質的な課題は「情報不足」です。
+TSUNAGU が解決したい本質的な課題は「情報不足」です。
 
 ## 3. Concept
 
-ShelterOS は、SRE やシステム運用で使われる Observability の考え方を災害対応に応用します。
+TSUNAGU は、SRE やシステム運用で使われる Observability の考え方を災害対応に応用します。
 
-通常の Observability はシステムを観測しますが、ShelterOS では避難所や現場を観測対象にします。
+通常の Observability はシステムを観測しますが、TSUNAGU では避難所や現場を観測対象にします。
 
 ## 4. Three Pillars
 
@@ -66,7 +66,7 @@ ShelterOS は、SRE やシステム運用で使われる Observability の考え
 
 ## 5. Core Value: Offline First
 
-ShelterOS の最大の特徴は LoRa ではなく、Offline First です。
+TSUNAGU の最大の特徴は LoRa ではなく、Offline First です。
 
 通信できない状態でも以下を可能にします。
 
@@ -118,9 +118,9 @@ ShelterOS の最大の特徴は LoRa ではなく、Offline First です。
 
 ## 7. LoRa Positioning
 
-LoRa は ShelterOS の主役ではありません。
+LoRa は TSUNAGU の主役ではありません。
 
-ShelterOS の価値は、通信断でも情報を失わない Offline First 設計にあります。
+TSUNAGU の価値は、通信断でも情報を失わない Offline First 設計にあります。
 
 LoRa は、その価値を補強するための「最後の通信手段」として扱います。
 

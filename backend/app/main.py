@@ -47,7 +47,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="ShelterOS", version="0.9.0", lifespan=lifespan)
+app = FastAPI(title="TSUNAGU", version="0.9.0", lifespan=lifespan)
 anonymous_report_limiter = SlidingWindowRateLimiter(limit=30, window_seconds=60)
 
 

@@ -1,4 +1,4 @@
-# ShelterOS 認証・AWS本番構築手順
+# TSUNAGU 認証・AWS本番構築手順
 
 ## 確定した認証方針
 
@@ -25,11 +25,11 @@ docker compose up --build -d
 ローカルLoRaゲートウェイには次の環境変数を設定する。
 
 ```powershell
-$env:SHELTEROS_GATEWAY_API_KEY="local-gateway-key"
+$env:TSUNAGU_GATEWAY_API_KEY="local-gateway-key"
 python .\tools\lora_serial_gateway.py --port COM6 --baud 115200
 ```
 
-送信失敗Packetは`.shelteros/lora_gateway_queue.db`へ保存され、API復旧後に再送される。
+送信失敗Packetは`.tsunagu/lora_gateway_queue.db`へ保存され、API復旧後に再送される。改名前の`.shelteros`キューがある場合は自動的に引き継ぐ。
 
 ## Google Cloudの準備
 
@@ -110,8 +110,8 @@ GitHub Actionsの「本番環境へ手動デプロイ」を開き、`first_deplo
 APIキーをAWSから安全に取得し、ノートPCの環境変数へ設定する。画面共有やログへ値を表示しない。
 
 ```powershell
-$env:SHELTEROS_API_URL="https://<AWS発行URL>/api/emergency-packets"
-$env:SHELTEROS_GATEWAY_API_KEY="<SSMから取得した値>"
+$env:TSUNAGU_API_URL="https://<AWS発行URL>/api/emergency-packets"
+$env:TSUNAGU_GATEWAY_API_KEY="<SSMから取得した値>"
 python .\tools\lora_serial_gateway.py --port COM6 --baud 115200
 ```
 

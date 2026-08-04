@@ -14,7 +14,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: shelteros-production
+  group: tsunagu-production
   cancel-in-progress: false
 
 jobs:
@@ -44,7 +44,7 @@ jobs:
         run: >-
           terraform init
           -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
-          -backend-config="key=shelteros/production.tfstate"
+          -backend-config="key=tsunagu/production.tfstate"
           -backend-config="region=${AWS_REGION}"
           -backend-config="use_lockfile=true"
       - name: Create foundation on first deployment
@@ -77,4 +77,4 @@ jobs:
           -var="create_service=true"
           -var="application_base_url=${{ steps.app.outputs.url }}"
       - name: Show deployment URL
-        run: echo "ShelterOS ${{ steps.app.outputs.url }}"
+        run: echo "TSUNAGU ${{ steps.app.outputs.url }}"
