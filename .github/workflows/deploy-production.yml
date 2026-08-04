@@ -1,0 +1,80 @@
+name: 本番環境へ手動デプロイ
+
+on:
+  workflow_dispatch:
+    inputs:
+      first_deploy:
+        description: "初回構築の場合のみ有効にする"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: shelteros-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_REGION: ap-northeast-1
+      TF_VAR_aws_region: ap-northeast-1
+      TF_VAR_cognito_domain_prefix: ${{ vars.COGNITO_DOMAIN_PREFIX }}
+      TF_VAR_google_client_id: ${{ secrets.GOOGLE_CLIENT_ID }}
+      TF_VAR_google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      TF_VAR_hq_emails: ${{ secrets.HQ_EMAILS_JSON }}
+      TF_VAR_field_emails: ${{ secrets.FIELD_EMAILS_JSON }}
+      TF_VAR_image_tag: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.5
+      - name: Initialize Terraform
+        working-directory: infra/terraform
+        run: >-
+          terraform init
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="key=shelteros/production.tfstate"
+          -backend-config="region=${AWS_REGION}"
+          -backend-config="use_lockfile=true"
+      - name: Create foundation on first deployment
+        if: inputs.first_deploy
+        working-directory: infra/terraform
+        run: terraform apply -auto-approve -var="create_service=false"
+      - name: Read ECR repository
+        id: ecr
+        working-directory: infra/terraform
+        run: echo "repository=$(terraform output -raw ecr_repository_url)" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push immutable image
+        env:
+          REPOSITORY: ${{ steps.ecr.outputs.repository }}
+        run: |
+          docker build -f backend/Dockerfile -t "$REPOSITORY:${GITHUB_SHA}" .
+          docker push "$REPOSITORY:${GITHUB_SHA}"
+      - name: Create setup-mode service on first deployment
+        if: inputs.first_deploy
+        working-directory: infra/terraform
+        run: terraform apply -auto-approve -var="create_service=true" -var="application_base_url="
+      - name: Read application URL
+        id: app
+        working-directory: infra/terraform
+        run: echo "url=$(terraform output -raw application_url)" >> "$GITHUB_OUTPUT"
+      - name: Deploy authenticated application
+        working-directory: infra/terraform
+        run: >-
+          terraform apply -auto-approve
+          -var="create_service=true"
+          -var="application_base_url=${{ steps.app.outputs.url }}"
+      - name: Show deployment URL
+        run: echo "ShelterOS ${{ steps.app.outputs.url }}"

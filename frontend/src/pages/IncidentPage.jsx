@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import StatusFilterTabs from "../components/incident/StatusFilterTabs.jsx";
 import IncidentCard from "../components/incident/IncidentCard.jsx";
 import ResolutionRequestModal from "../components/incident/ResolutionRequestModal.jsx";

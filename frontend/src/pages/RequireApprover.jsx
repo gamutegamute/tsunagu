@@ -1,13 +1,12 @@
-import { Navigate } from "react-router-dom";
-import { isApproverLoggedIn } from "../utils/approverName.js";
+import { Navigate, useLocation } from "react-router";
+import { useAuth } from "../auth/AuthContext.jsx";
 
-/**
- * 本部(PC)ログイン(決定事項24)が済んでいない状態で/dashboardに
- * 直接アクセスされた場合、/loginへリダイレクトするガード。
- */
 export default function RequireApprover({ children }) {
-  if (!isApproverLoggedIn()) {
-    return <Navigate to="/login" replace />;
-  }
+  const { user, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) return <main className="auth-loading">認証状態を確認しています</main>;
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (user.role !== "hq") return <Navigate to="/field-report" replace />;
   return children;
 }

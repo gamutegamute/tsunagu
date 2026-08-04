@@ -3,6 +3,7 @@ import Dashboard from "../components/Dashboard.jsx";
 import { useShelterList } from "../hooks/useShelterList.js";
 import { useDashboardData } from "../hooks/useDashboardData.js";
 import { mergeEmergencyDataIntoDashboard } from "../utils/emergencyPacket.js";
+import AuthStatus from "../components/AuthStatus.jsx";
 
 /**
  * 本部ダッシュボード画面(PC向け、/dashboard)。
@@ -33,6 +34,7 @@ export default function DashboardPage() {
           <h1>ShelterOS</h1>
           <p>本部ダッシュボード</p>
         </div>
+        <AuthStatus />
       </header>
 
       <main className="layout-desktop">

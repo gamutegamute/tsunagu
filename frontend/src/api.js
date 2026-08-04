@@ -1,44 +1,56 @@
-// ---------------------------------------------------------------------------
-// バックエンド(backend/app/main.py)と通信する層。
-// vite.config.js の server.proxy 設定により、開発中は /api/* が
-// http://localhost:8000 のFastAPIサーバーへ転送される。
-// (元のApp.jsx内 api() ヘルパーをそのまま移動し、呼び出し箇所ごとに
-//  名前付き関数として整理しただけで、通信の中身は変えていない)
-// ---------------------------------------------------------------------------
+function readCookie(name) {
+  const prefix = `${encodeURIComponent(name)}=`;
+  const item = document.cookie.split("; ").find((cookie) => cookie.startsWith(prefix));
+  return item ? decodeURIComponent(item.slice(prefix.length)) : null;
+}
+
+export class ApiError extends Error {
+  constructor(status, body) {
+    super(body?.detail || `HTTP ${status}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+  const method = (options.method || "GET").toUpperCase();
+  const headers = { ...(options.headers || {}) };
+  if (options.body) headers["Content-Type"] = "application/json";
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    const csrfToken = readCookie("shelteros_csrf");
+    if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
   }
-  return response.json();
+
+  const response = await fetch(path, { credentials: "same-origin", ...options, headers });
+  const body = response.status === 204 ? null : await response.json().catch(() => null);
+  if (!response.ok) throw new ApiError(response.status, body);
+  return body;
 }
 
-export function fetchShelters() {
-  return api("/api/shelters");
-}
+export const fetchAuthConfig = () => api("/api/auth/config");
+export const fetchCurrentUser = () => api("/api/auth/me");
+export const devLogin = (role) => api("/api/auth/dev-login", {
+  method: "POST",
+  body: JSON.stringify({ role, name: role === "hq" ? "ローカル本部職員" : "ローカル現場職員" }),
+});
+export const logout = () => api("/api/auth/logout", { method: "POST" });
 
-export function fetchDashboard() {
-  return api("/api/dashboard");
-}
+export const fetchShelters = () => api("/api/shelters");
+export const fetchDashboard = () => api("/api/dashboard");
+export const fetchEmergencyPackets = () => api("/api/emergency-packets");
 
-export function fetchEmergencyPackets() {
-  return api("/api/emergency-packets");
-}
+export const createObservation = (payload) => api("/api/observations", {
+  method: "POST",
+  body: JSON.stringify(payload),
+});
 
-export function createObservation(payload) {
-  return api("/api/observations", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
+export const createShelter = (payload) => api("/api/shelters", {
+  method: "POST",
+  body: JSON.stringify(payload),
+});
 
-export function createShelter(payload) {
-  return api("/api/shelters", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
+export const updateObservationVerification = (observationId, status) => api(
+  `/api/observations/${encodeURIComponent(observationId)}/verification`,
+  { method: "PATCH", body: JSON.stringify({ status }) },
+);

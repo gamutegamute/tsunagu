@@ -557,6 +557,85 @@ legend {
   justify-content: space-between;
 }
 
+.verification-row,
+.verification-actions,
+.auth-status,
+.dev-login-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.verification-row {
+  justify-content: space-between;
+}
+
+.verification-badge,
+.auth-role {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+}
+
+.verification-badge.verified {
+  background: #e5f4ee;
+  color: var(--green);
+}
+
+.verification-badge.unverified {
+  background: #fff7d6;
+  color: #765600;
+}
+
+.verification-actions button {
+  font-size: 11px;
+  min-height: 30px;
+  padding: 5px 10px;
+}
+
+.verification-actions .reject-button {
+  background: white;
+  border: 1px solid var(--red);
+  color: var(--red);
+}
+
+.auth-status {
+  color: white;
+  font-size: 12px;
+}
+
+.auth-role {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.topbar-auth-link,
+.topbar-auth-button {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 6px;
+  color: white;
+  font-size: 12px;
+  padding: 7px 10px;
+  text-decoration: none;
+}
+
+.login-google-button {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+}
+
+.dev-login-actions {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.auth-loading {
+  padding: 32px;
+}
+
 .shelter-card-updated {
   color: var(--muted);
   font-size: 12px;

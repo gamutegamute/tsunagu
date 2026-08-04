@@ -1,0 +1,31 @@
+name: Terraform check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform-check.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.5
+      - name: Format check
+        run: terraform fmt -check -recursive infra
+      - name: Initialize without backend
+        working-directory: infra/terraform
+        run: terraform init -backend=false
+      - name: Validate
+        working-directory: infra/terraform
+        run: terraform validate
+      - name: Initialize state bootstrap
+        working-directory: infra/bootstrap-state
+        run: terraform init -backend=false
+      - name: Validate state bootstrap
+        working-directory: infra/bootstrap-state
+        run: terraform validate

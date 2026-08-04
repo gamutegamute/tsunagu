@@ -1,66 +1,141 @@
 import argparse
+import hashlib
 import json
+import os
+import sqlite3
 import sys
 import time
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-def post_packet(api_url: str, packet: str) -> None:
+class PacketQueue:
+    def __init__(self, database_path: Path):
+        database_path.parent.mkdir(parents=True, exist_ok=True)
+        self.connection = sqlite3.connect(database_path)
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pending_packets (
+                id TEXT PRIMARY KEY,
+                packet TEXT NOT NULL,
+                queued_at REAL NOT NULL
+            )
+            """
+        )
+        self.connection.commit()
+
+    def enqueue(self, packet: str) -> None:
+        packet_id = hashlib.sha256(packet.encode("utf-8")).hexdigest()
+        self.connection.execute(
+            "INSERT OR IGNORE INTO pending_packets (id, packet, queued_at) VALUES (?, ?, ?)",
+            (packet_id, packet, time.time()),
+        )
+        self.connection.commit()
+
+    def pending(self) -> list[tuple[str, str]]:
+        return list(
+            self.connection.execute(
+                "SELECT id, packet FROM pending_packets ORDER BY queued_at, id"
+            )
+        )
+
+    def remove(self, packet_id: str) -> None:
+        self.connection.execute("DELETE FROM pending_packets WHERE id = ?", (packet_id,))
+        self.connection.commit()
+
+    def count(self) -> int:
+        return self.connection.execute("SELECT count(*) FROM pending_packets").fetchone()[0]
+
+
+def post_packet(api_url: str, api_key: str, packet: str) -> None:
     body = json.dumps({"packet": packet}).encode("utf-8")
     request = Request(
         api_url,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-Gateway-Key": api_key},
         method="POST",
     )
     with urlopen(request, timeout=5) as response:
         response.read()
 
 
-def run_stdin(api_url: str) -> None:
-    # 日本語コメント: 標準入力モードでも通信系例外発生時に停止しないよう try-except を追加 (KeyboardInterrupt等は通す)
+def flush_queue(queue: PacketQueue, api_url: str, api_key: str) -> bool:
+    all_sent = True
+    for packet_id, packet in queue.pending():
+        try:
+            post_packet(api_url, api_key, packet)
+            queue.remove(packet_id)
+            print(f"posted: {packet}", flush=True)
+        except (HTTPError, URLError, TimeoutError, ConnectionError) as exc:
+            all_sent = False
+            print(f"queued: {packet} ({exc})", flush=True)
+            break
+    return all_sent
+
+
+def accept_packet(queue: PacketQueue, api_url: str, api_key: str, packet: str) -> None:
+    queue.enqueue(packet)
+    flush_queue(queue, api_url, api_key)
+
+
+def run_stdin(queue: PacketQueue, api_url: str, api_key: str) -> None:
+    flush_queue(queue, api_url, api_key)
     for line in sys.stdin:
         packet = line.strip()
         if packet:
-            try:
-                post_packet(api_url, packet)
-                print(f"posted: {packet}", flush=True)
-            except (HTTPError, URLError, TimeoutError, ConnectionError) as exc:
-                print(f"failed: {packet} ({exc})", flush=True)
+            accept_packet(queue, api_url, api_key, packet)
 
 
-def run_serial(api_url: str, port: str, baud: int) -> None:
+def run_serial(queue: PacketQueue, api_url: str, api_key: str, port: str, baud: int) -> None:
     try:
         import serial
     except ImportError as exc:
-        raise SystemExit("pyserial is required for --port mode. Install it with: pip install pyserial") from exc
+        raise SystemExit("pyserial is required. Install it with: python -m pip install pyserial") from exc
 
-    with serial.Serial(port, baud, timeout=1) as serial_port:
-        while True:
-            line = serial_port.readline().decode("utf-8", errors="ignore").strip()
-            if not line:
-                continue
-            try:
-                post_packet(api_url, line)
-                print(f"posted: {line}", flush=True)
-            except (HTTPError, URLError, TimeoutError, ConnectionError) as exc:
-                # 日本語コメント: 通信系の例外のみをキャッチして中継を継続する (KeyboardInterruptなどは通す)
-                print(f"failed: {line} ({exc})", flush=True)
-                time.sleep(1)
+    while True:
+        try:
+            print(f"connecting: {port} ({baud} baud)", flush=True)
+            with serial.Serial(port, baud, timeout=1) as serial_port:
+                print(f"connected: {port}", flush=True)
+                flush_queue(queue, api_url, api_key)
+                last_retry = time.monotonic()
+                while True:
+                    line = serial_port.readline().decode("utf-8", errors="ignore").strip()
+                    if line:
+                        accept_packet(queue, api_url, api_key, line)
+                    elif queue.count() and time.monotonic() - last_retry >= 5:
+                        flush_queue(queue, api_url, api_key)
+                        last_retry = time.monotonic()
+        except serial.SerialException as exc:
+            print(f"serial disconnected: {exc}; retrying in 3 seconds", flush=True)
+            time.sleep(3)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Forward T-Beam serial Emergency Packets to ShelterOS.")
-    parser.add_argument("--api-url", default="http://localhost:8000/api/emergency-packets")
-    parser.add_argument("--port", help="Windows COM port such as COM3. If omitted, read packets from stdin.")
+    parser = argparse.ArgumentParser(description="Forward T-Beam Emergency Packets to ShelterOS.")
+    parser.add_argument(
+        "--api-url",
+        default=os.getenv("SHELTEROS_API_URL", "http://localhost:8000/api/emergency-packets"),
+    )
+    parser.add_argument("--port", help="Windows COM port such as COM3. If omitted, read from stdin.")
     parser.add_argument("--baud", type=int, default=115200)
+    parser.add_argument(
+        "--queue-db",
+        type=Path,
+        default=Path(os.getenv("SHELTEROS_QUEUE_DB", ".shelteros/lora_gateway_queue.db")),
+    )
     args = parser.parse_args()
 
+    api_key = os.getenv("SHELTEROS_GATEWAY_API_KEY", "")
+    if not api_key:
+        raise SystemExit("SHELTEROS_GATEWAY_API_KEY is required")
+
+    queue = PacketQueue(args.queue_db)
     if args.port:
-        run_serial(args.api_url, args.port, args.baud)
+        run_serial(queue, args.api_url, api_key, args.port, args.baud)
     else:
-        run_stdin(args.api_url)
+        run_stdin(queue, args.api_url, api_key)
 
 
 if __name__ == "__main__":

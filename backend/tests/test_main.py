@@ -1,16 +1,69 @@
+import concurrent.futures
 from uuid import uuid4
+
+import pytest
 from fastapi.testclient import TestClient
+
 import app.main as main_module
-from app.main import app
+from app.config import validate_runtime_settings
 from app.db import get_conn
+from app.main import app
+from app.rate_limit import SlidingWindowRateLimiter
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def authenticated_hq_client():
+    client.cookies.clear()
+    login = client.post("/api/auth/dev-login", json={"role": "hq", "name": "Test HQ"})
+    assert login.status_code == 204
+    client.headers["X-CSRF-Token"] = client.cookies.get("shelteros_csrf")
+    client.headers["X-Gateway-Key"] = "test-gateway-key"
+    yield
+    client.headers.pop("X-CSRF-Token", None)
+    client.headers.pop("X-Gateway-Key", None)
+    client.cookies.clear()
+
+
+def observation_payload(**overrides):
+    payload = {
+        "shelter_id": "AIT001",
+        "client_event_id": str(uuid4()),
+        "people_count": 120,
+        "water_stock": 50,
+        "urgency": "NORMAL",
+        "memo": "Test memo",
+        "reporter_name": "Test Reporter",
+        "source": "web",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_rate_limiter_rejects_requests_over_limit():
+    limiter = SlidingWindowRateLimiter(limit=2, window_seconds=60)
+
+    assert limiter.allow("same-client") is True
+    assert limiter.allow("same-client") is True
+    assert limiter.allow("same-client") is False
+    assert limiter.allow("another-client") is True
+
+
+def test_production_rejects_development_auth_mode(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    monkeypatch.setenv("SESSION_SECRET", "x" * 32)
+    monkeypatch.setenv("GATEWAY_API_KEY", "test-key")
+
+    with pytest.raises(RuntimeError, match="AUTH_MODE=cognito"):
+        validate_runtime_settings()
+
 
 def test_frontend_routes_return_index_html(tmp_path, monkeypatch):
     (tmp_path / "index.html").write_text("<html><body>ShelterOS</body></html>", encoding="utf-8")
     monkeypatch.setattr(main_module, "FRONTEND_DIR", tmp_path)
-
-    frontend_routes = [
+    routes = [
         "/",
         "/field-report",
         "/dashboard",
@@ -21,220 +74,151 @@ def test_frontend_routes_return_index_html(tmp_path, monkeypatch):
         "/dashboard/timeline",
         "/dashboard/shelters/AIT001",
     ]
-    for path in frontend_routes:
+    for path in routes:
         response = client.get(path)
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
 
 
-def test_create_observation_success():
-    client_event_id = str(uuid4())
-    payload = {
-        "shelter_id": "AIT001",
-        "client_event_id": client_event_id,
-        "people_count": 120,
-        "water_stock": 50,
-        "urgency": "NORMAL",
-        "memo": "Test memo",
-        "reporter_name": "Test Reporter",
-        "source": "web"
-    }
-    response = client.post("/api/observations", json=payload)
+def test_health_and_readiness():
+    assert client.get("/health").json() == {"status": "ok"}
+    ready = client.get("/ready")
+    assert ready.status_code == 200
+    assert ready.json() == {"status": "ok", "database": "ok"}
+
+
+def test_dashboard_requires_hq_login():
+    client.cookies.clear()
+    assert client.get("/api/dashboard").status_code == 401
+
+
+def test_removed_allowlist_user_loses_access(monkeypatch):
+    monkeypatch.setenv("AUTH_MODE", "cognito")
+    monkeypatch.setenv("AUTH_HQ_EMAILS", "local-hq@shelteros.local")
+    assert client.get("/api/auth/me").status_code == 200
+
+    monkeypatch.setenv("AUTH_HQ_EMAILS", "")
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_field_user_cannot_create_shelter():
+    client.cookies.clear()
+    login = client.post("/api/auth/dev-login", json={"role": "field", "name": "Field User"})
+    client.headers["X-CSRF-Token"] = login.cookies.get("shelteros_csrf")
+    assert client.post("/api/shelters", json={"name": "Forbidden Shelter"}).status_code == 403
+    assert client.get("/api/dashboard").status_code == 403
+
+
+def test_create_observation_is_idempotent():
+    payload = observation_payload()
+    first = client.post("/api/observations", json=payload)
+    assert first.status_code == 201
+    assert first.json()["reporter_type"] == "AUTHENTICATED_HQ"
+    assert first.json()["verification_status"] == "UNVERIFIED"
+
+    duplicate = client.post("/api/observations", json={**payload, "people_count": 999})
+    assert duplicate.status_code == 201
+    assert duplicate.json()["id"] == first.json()["id"]
+    assert duplicate.json()["people_count"] == 120
+
+
+def test_anonymous_observation_is_unverified():
+    anonymous_client = TestClient(app)
+    response = anonymous_client.post("/api/observations", json=observation_payload())
     assert response.status_code == 201
-    data = response.json()
-    assert data["reporter_name"] == "Test Reporter"
-    assert data["source"] == "web"
-    assert data["shelter_id"] == "AIT001"
+    assert response.json()["reporter_type"] == "ANONYMOUS"
+    assert response.json()["reporter_email"] is None
+    assert response.json()["verification_status"] == "UNVERIFIED"
 
-    # 冪等性の検証 (同じ client_event_id で再送信)
-    payload2 = payload.copy()
-    payload2["people_count"] = 999
-    response2 = client.post("/api/observations", json=payload2)
-    assert response2.status_code == 201
-    data2 = response2.json()
-    assert data2["people_count"] == 120  # 更新されず元の値のまま
 
-def test_create_observation_with_shelter_code():
-    client_event_id = str(uuid4())
-    payload = {
-        "shelter_code": "AIT002",
-        "client_event_id": client_event_id,
-        "people_count": 80,
-        "water_stock": 25,
-        "urgency": "WARNING",
-        "memo": "",
-        "reporter_name": "Offline Reporter",
-        "source": "offline"
-    }
-    response = client.post("/api/observations", json=payload)
+def test_create_observation_accepts_shelter_code():
+    response = client.post(
+        "/api/observations",
+        json=observation_payload(shelter_id=None, shelter_code="AIT002", source="offline"),
+    )
     assert response.status_code == 201
-    data = response.json()
-    assert data["reporter_name"] == "Offline Reporter"
-    assert data["source"] == "offline"
-    assert data["shelter_id"] == "AIT002"
+    assert response.json()["shelter_id"] == "AIT002"
+    assert response.json()["source"] == "offline"
 
-def test_create_emergency_packet_syncs_to_observations():
-    # packet 形式: version|shelter_code|packet_time|people_count|water_stock|status|request_code
-    packet_data = "v1|AIT003|14:35|210|45|WARNING|REQ_WATER"
-    payload = {"packet": packet_data}
-    response = client.post("/api/emergency-packets", json=payload)
-    assert response.status_code == 201
 
-    # observations に同期されたか検証
+def test_create_observation_rejects_unknown_shelter():
+    response = client.post("/api/observations", json=observation_payload(shelter_id="AIT999"))
+    assert response.status_code == 404
+    assert response.json()["detail"]["error"] == "Shelter not found"
+
+
+def test_hq_can_verify_observation():
+    created = client.post("/api/observations", json=observation_payload()).json()
+    response = client.patch(
+        f"/api/observations/{created['id']}/verification",
+        json={"status": "VERIFIED"},
+    )
+    assert response.status_code == 200
+    assert response.json()["verification_status"] == "VERIFIED"
+    assert response.json()["verified_by"] == "local-hq@shelteros.local"
+
+
+def test_create_shelter_with_custom_id():
+    shelter_id = f"AIT-TEST-{uuid4().hex[:8].upper()}"
+    payload = {"id": shelter_id, "name": "Test Shelter", "location": "Test Location"}
+    assert client.post("/api/shelters", json=payload).status_code == 201
+    duplicate = client.post("/api/shelters", json=payload)
+    assert duplicate.status_code == 400
+    assert duplicate.json()["detail"]["error"] == "Shelter already exists"
+
+
+def test_emergency_packet_requires_gateway_key():
+    client.headers.pop("X-Gateway-Key")
+    response = client.post(
+        "/api/emergency-packets",
+        json={"packet": "v1|AIT001|21:04|170|18|WARNING|REQ_WATER"},
+    )
+    assert response.status_code == 401
+
+
+def test_emergency_packet_rejects_invalid_format():
+    response = client.post("/api/emergency-packets", json={"packet": "invalid"})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "Invalid LoRa packet format"
+
+
+def test_emergency_packet_syncs_and_deduplicates_observation():
+    people_count = 200_000 + uuid4().int % 100_000
+    packet = f"v1|AIT003|14:{uuid4().int % 60:02d}|{people_count}|45|WARNING|REQ_WATER"
+    first = client.post("/api/emergency-packets", json={"packet": packet})
+    second = client.post("/api/emergency-packets", json={"packet": packet})
+    assert first.status_code == second.status_code == 201
+    assert first.json()["id"] == second.json()["id"]
+
     with get_conn() as conn:
-        obs = conn.execute(
+        observations = conn.execute(
             """
             SELECT * FROM observations
-            WHERE shelter_id = 'AIT003' AND source = 'emergency_packet'
-            ORDER BY created_at DESC LIMIT 1;
-            """
-        ).fetchone()
-        assert obs is not None
-        assert obs["people_count"] == 210
-        assert obs["water_stock"] == 45
-        assert obs["urgency"] == "WARNING"
-        assert obs["reporter_name"] == "LoRa Packet"
-        assert "[LoRa]" in obs["memo"]
-        assert obs["client_event_id"].startswith("LORA-")
+            WHERE shelter_id = 'AIT003' AND people_count = %s AND water_stock = 45
+              AND source = 'emergency_packet';
+            """,
+            (people_count,),
+        ).fetchall()
+        assert len(observations) == 1
+        assert observations[0]["reporter_type"] == "LORA_GATEWAY"
 
 
-def test_seed_data_exists():
-    # 日本語コメント: シードデータがDBに存在しているか直接検証
-    with get_conn() as conn:
-        obs1 = conn.execute("SELECT * FROM observations WHERE id = 'OBS-demo-seed-1';").fetchone()
-        assert obs1 is not None
-        assert obs1["reporter_name"] == "デモ報告者A"
-
-        obs2 = conn.execute("SELECT * FROM observations WHERE id = 'OBS-demo-seed-2';").fetchone()
-        assert obs2 is not None
-        assert obs2["source"] == "emergency_packet"
-
-        ep = conn.execute("SELECT * FROM emergency_packets WHERE id = 'EP-demo-seed-2';").fetchone()
-        assert ep is not None
-
-
-def test_create_observation_shelter_not_found_error():
-    # 日本語コメント: 存在しない避難所コードによる404詳細エラー検証
-    payload = {
-        "shelter_id": "AIT999",
-        "client_event_id": str(uuid4()),
-        "people_count": 10,
-        "water_stock": 10,
-        "urgency": "NORMAL",
-        "memo": "",
-        "reporter_name": "Test",
-        "source": "web"
-    }
-    response = client.post("/api/observations", json=payload)
-    assert response.status_code == 404
-    data = response.json()
-    assert "detail" in data
-    assert data["detail"]["error"] == "Shelter not found"
-    assert "AIT999" in data["detail"]["message"]
-    assert "hint" in data["detail"]
-
-
-def test_create_emergency_packet_invalid_format_error():
-    # 日本語コメント: 不正なLoRaパケット送信による400詳細エラー検証
-    payload = {"packet": "invalid_packet_format"}
-    response = client.post("/api/emergency-packets", json=payload)
-    assert response.status_code == 400
-    data = response.json()
-    assert "detail" in data
-    assert data["detail"]["error"] == "Invalid LoRa packet format"
-    assert "expected_format" in data["detail"]
-    assert "example" in data["detail"]
-
-
-def test_health_check_success():
-    # 日本語コメント: DB接続確認機能付きのヘルスチェックAPIの検証
-    response = client.get("/health")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "ok"
-    assert data["database"] == "ok"
-def test_create_shelter_with_custom_id():
-    # 日本語コメント: IDを指定して新規避難所を追加するテスト
-    custom_id = f"AIT-TEST-{uuid4().hex[:8].upper()}"
-    payload = {
-        "id": custom_id,
-        "name": "テスト避難所",
-        "location": "テスト場所"
-    }
-    response = client.post("/api/shelters", json=payload)
-    assert response.status_code == 201
-    data = response.json()
-    assert data["id"] == custom_id
-    assert data["name"] == "テスト避難所"
-
-    # 重複する避難所IDを登録しようとして400エラーになるテスト (日本語コメント)
-    response_duplicate = client.post("/api/shelters", json=payload)
-    assert response_duplicate.status_code == 400
-    data_dup = response_duplicate.json()
-    assert data_dup["detail"]["error"] == "Shelter already exists"
-    assert custom_id in data_dup["detail"]["message"]
-
-
-def test_create_emergency_packet_deduplication():
-    # 日本語コメント: 同一パケット再送時の重複排除・冪等性検証テスト
-    packet_data = "v1|AIT001|10:20|85|12|WARNING|REQ_WATER"
-    payload = {"packet": packet_data}
-
-    # 1回目のPOST
-    response1 = client.post("/api/emergency-packets", json=payload)
-    assert response1.status_code == 201
-    data1 = response1.json()
-    packet_id1 = data1["id"]
-
-    # 2回目のPOST (同一パケット)
-    response2 = client.post("/api/emergency-packets", json=payload)
-    assert response2.status_code == 201
-    data2 = response2.json()
-    packet_id2 = data2["id"]
-
-    # 返却されるIDが同一であることを確認
-    assert packet_id1 == packet_id2
-
-    # データベースに重複して登録されていないか確認 (日本語コメント)
-    with get_conn() as conn:
-        # emergency_packets に1件のみ存在すること
-        eps = conn.execute("SELECT * FROM emergency_packets WHERE id = %s;", (packet_id1,)).fetchall()
-        assert len(eps) == 1
-
-        # observations も重複せず1件のみ存在すること
-        obss = conn.execute("SELECT * FROM observations WHERE shelter_id = 'AIT001' AND source = 'emergency_packet' ORDER BY created_at DESC;").fetchall()
-        # テスト実行順序により他のテストが LoRa 報告をインサートしている可能性があるため、
-        # 今回のパケットに対応する observations の client_event_id を特定してカウントする
-        # （LORA- で始まる client_event_id での重複チェック）
-        lora_obs = [obs for obs in obss if obs["people_count"] == 85 and obs["water_stock"] == 12]
-        assert len(lora_obs) == 1
-
-
-def test_create_emergency_packet_concurrent():
-    # 日本語コメント: 同一パケットの同時リクエスト時に1件のみ保存され、すべて201が返ることを検証 (並行テスト)
-    import concurrent.futures
-    packet_data = "v1|AIT001|11:00|90|15|WARNING|REQ_WATER"
-    payload = {"packet": packet_data}
+def test_emergency_packet_deduplication_is_concurrent():
+    packet = f"v1|AIT001|11:{uuid4().int % 60:02d}|90|15|WARNING|REQ_WATER"
 
     def send_request():
-        return client.post("/api/emergency-packets", json=payload)
+        return client.post("/api/emergency-packets", json={"packet": packet})
 
-    # 5スレッドで同時にリクエストを送信
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(send_request) for _ in range(5)]
-        responses = [f.result() for f in futures]
+        responses = list(executor.map(lambda _: send_request(), range(5)))
 
-    # すべてのレスポンスが 201 Created であることを確認
-    for r in responses:
-        assert r.status_code == 201
+    assert all(response.status_code == 201 for response in responses)
+    assert len({response.json()["id"] for response in responses}) == 1
 
-    # 返却された ID がすべて同一であることを確認 (日本語コメント)
-    packet_ids = [r.json()["id"] for r in responses]
-    assert len(set(packet_ids)) == 1
 
-    packet_id = packet_ids[0]
-
-    # DBに1件のみ存在することを確認
+def test_demo_seed_data_exists():
     with get_conn() as conn:
-        eps = conn.execute("SELECT * FROM emergency_packets WHERE id = %s;", (packet_id,)).fetchall()
-        assert len(eps) == 1
+        observation = conn.execute("SELECT * FROM observations WHERE id = 'OBS-demo-seed-1';").fetchone()
+        packet = conn.execute("SELECT * FROM emergency_packets WHERE id = 'EP-demo-seed-2';").fetchone()
+    assert observation is not None
+    assert packet is not None

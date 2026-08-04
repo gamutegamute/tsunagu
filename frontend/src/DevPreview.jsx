@@ -9,8 +9,7 @@ import { createObservation } from "./api.js";
 import { STORAGE_KEYS } from "./utils/storageKeys.js";
 
 /**
- * 開発確認用プレビューページ(本番のURL/static/からは遷移できない。#dev-previewを
- * 直接指定した場合のみmain.jsxがこちらをマウントする)。
+ * 開発確認用プレビューページ。本部権限でURLを直接開いた場合だけ表示する。
  *
  * Field Report(モバイル幅)とHeadquarters Dashboard(PC幅)を実寸に近いフレーム幅で
  * 並べて表示し、開発中に両方の見た目を同時に確認できるようにする。

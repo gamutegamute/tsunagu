@@ -8,6 +8,8 @@ import { createObservation } from "../api.js";
 import { STORAGE_KEYS } from "../utils/storageKeys.js";
 import { setActiveShelter } from "../utils/activeShelter.js";
 import { addSentReportToHistory } from "../utils/sentReportHistory.js";
+import AuthStatus from "../components/AuthStatus.jsx";
+import { createClientEventId } from "../utils/clientEventId.js";
 
 /**
  * 現場報告画面(モバイル向け、/field-report)。
@@ -43,7 +45,7 @@ export default function FieldReportPage() {
     const payload = {
       reporter_name: trimmedReporterName,
       shelter_id: shelterId,
-      client_event_id: crypto.randomUUID(),
+      client_event_id: createClientEventId(),
       people_count: peopleCount,
       water_stock: waterStock,
       urgency,
@@ -72,6 +74,7 @@ export default function FieldReportPage() {
           <p>通信が途絶えても、現場の状況は途絶えない。</p>
         </div>
         <div className="topbar-right-group">
+          <AuthStatus />
           <FieldReportNavButtons />
           <NetworkModeSwitcher networkMode={networkMode} onChangeMode={setNetworkMode} />
         </div>

@@ -21,10 +21,11 @@ function formatUpdatedAt(observedAtIsoString) {
  * 避難所1件分の状況を表示するカード(Figmaの ShelterCard コンポーネントを再現)。
  * onClickを渡すと、決定事項16の詳細画面遷移のようにクリック可能なカードになる。
  */
-export default function ShelterCard({ shelterStatus, onClick }) {
+export default function ShelterCard({ shelterStatus, onClick, onVerificationChange }) {
   const { shelter, latest_observation: observation, status, request_code: requestCode } = shelterStatus;
   const statusClassName = toStatusClassName(status);
   const isClickable = typeof onClick === "function";
+  const verificationStatus = observation?.verification_status ?? "UNVERIFIED";
 
   return (
     <article
@@ -74,6 +75,20 @@ export default function ShelterCard({ shelterStatus, onClick }) {
               ? "📡 報告者名・メモ: LoRa経由のため未取得"
               : `👤 報告者: ${observation.reporter_name || "不明"}`}
           </p>
+        )}
+
+        {observation && (
+          <div className="verification-row" onClick={(event) => event.stopPropagation()}>
+            <span className={`verification-badge ${verificationStatus.toLowerCase()}`}>
+              {verificationStatus === "VERIFIED" ? "確認済み" : "未確認"}
+            </span>
+            {verificationStatus === "UNVERIFIED" && onVerificationChange && (
+              <div className="verification-actions">
+                <button type="button" onClick={() => onVerificationChange(observation.id, "VERIFIED")}>確認</button>
+                <button type="button" className="reject-button" onClick={() => onVerificationChange(observation.id, "REJECTED")}>却下</button>
+              </div>
+            )}
+          </div>
         )}
 
         <div className="shelter-card-footer">
