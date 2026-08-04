@@ -1,16 +1,16 @@
 ﻿# TSUNAGU v0.9
 
-Offline First Disaster Observability Platform
+通信断に強い災害情報共有プラットフォーム
 
 > 通信が途絶えても、現場の状況は途絶えない。
 
-## 1. What Is TSUNAGU?
+## 1. TSUNAGUとは
 
 TSUNAGU は、災害時の避難所・現場状況を記録、標準化、共有、観測するための Offline First 型プラットフォームです。
 
 TSUNAGU は、単なる避難所管理アプリや物資管理アプリではありません。災害時の意思決定を支えるために、現場情報を止めずに集める「現場情報インフラ」を目指します。
 
-## 2. Problem
+## 2. 解決する課題
 
 災害時には、通信障害、停電、道路寸断、人員不足が同時に発生します。
 
@@ -25,15 +25,15 @@ TSUNAGU は、単なる避難所管理アプリや物資管理アプリではあ
 
 TSUNAGU が解決したい本質的な課題は「情報不足」です。
 
-## 3. Concept
+## 3. コンセプト
 
 TSUNAGU は、SRE やシステム運用で使われる Observability の考え方を災害対応に応用します。
 
 通常の Observability はシステムを観測しますが、TSUNAGU では避難所や現場を観測対象にします。
 
-## 4. Three Pillars
+## 4. 3つの柱
 
-### Monitoring
+### 状況把握（Monitoring）
 
 避難所の状態を継続的に観測します。
 
@@ -43,16 +43,16 @@ TSUNAGU は、SRE やシステム運用で使われる Observability の考え�
 - 緊急度
 - 自由メモ
 
-### Alerting
+### 異常検知（Alerting）
 
 異常状態を自動で検知します。
 
-- 水が20以下
+- 水在庫が20未満
 - 人数が急増
 - 24時間以上更新なし
-- 緊急度が RED / CRITICAL
+- 緊急度が ALERT / CRITICAL
 
-### Forecasting
+### 予測（Forecasting）
 
 今後の不足を簡易的に予測します。
 
@@ -64,7 +64,7 @@ TSUNAGU は、SRE やシステム運用で使われる Observability の考え�
 予測: 約2日で水不足
 ```
 
-## 5. Core Value: Offline First
+## 5. 中心価値: Offline First
 
 TSUNAGU の最大の特徴は LoRa ではなく、Offline First です。
 
@@ -77,9 +77,9 @@ TSUNAGU の最大の特徴は LoRa ではなく、Offline First です。
 
 通信復旧後、ローカルに保存された報告をサーバーへ自動同期します。
 
-## 6. Communication Modes
+## 6. 通信状態
 
-### Normal Mode
+### 通常時（Normal）
 
 通常通信が可能な状態です。
 
@@ -93,7 +93,7 @@ TSUNAGU の最大の特徴は LoRa ではなく、Offline First です。
 - ダッシュボード即時反映
 - 履歴保存
 
-### Offline Mode
+### オフライン時（Offline）
 
 完全に通信が切れている状態です。
 
@@ -103,7 +103,7 @@ TSUNAGU の最大の特徴は LoRa ではなく、Offline First です。
 - 未同期レポートとして保持
 - 画面閲覧は継続可能
 
-### Emergency Mode
+### 非常時（Emergency）
 
 通常通信が使えない場合の最後の通信手段です。
 
@@ -116,7 +116,7 @@ TSUNAGU の最大の特徴は LoRa ではなく、Offline First です。
 - 最小限の Emergency Packet を送信
 - 本部側で最低限の状況を把握
 
-## 7. LoRa Positioning
+## 7. LoRaの位置づけ
 
 LoRa は TSUNAGU の主役ではありません。
 
@@ -126,7 +126,7 @@ LoRa は、その価値を補強するための「最後の通信手段」とし
 
 v0.8 では街中の LoRaWAN ゲートウェイは前提にしません。避難所ノードと本部ノードを自分たちで持ち込む、閉じた P2P 通信として扱います。
 
-## 8. Emergency Packet
+## 8. 緊急パケット（Emergency Packet）
 
 LoRa で送る最小限の情報です。
 
@@ -143,9 +143,9 @@ LoRa で送る最小限の情報です。
 AIT001|21:04|170|18|WARNING|REQ_WATER
 ```
 
-## 9. MVP Scope
+## 9. MVPの範囲
 
-THE HACK では、「現場の状況を正確に報告できること」を最重要とします。
+MVP では、「現場の状況を正確に報告できること」を最重要とします。
 
 素早さは重要ですが、最優先ではありません。災害時に本当に困るのは、報告が遅いことだけではなく、誤った人数・水在庫・緊急度が本部に伝わることです。
 
@@ -166,9 +166,9 @@ THE HACK では、「現場の状況を正確に報告できること」を最�
 - 学内の小さな実験スペース
 - 数人から十数人規模の模擬運用
 
-## 10. Main Screens
+## 10. 主な画面
 
-### Field Report
+### 現場報告（Field Report）
 
 現場担当者が報告する画面です。
 
@@ -191,7 +191,7 @@ THE HACK では、「現場の状況を正確に報告できること」を最�
 未送信 1件
 ```
 
-### Headquarters Dashboard
+### 本部ダッシュボード
 
 本部が状況を見るメイン画面です。
 
@@ -201,9 +201,9 @@ THE HACK では、「現場の状況を正確に報告できること」を最�
 - 最終更新時刻
 - 警告状態
 - 要請コード
-- 簡易Forecast
+- 簡易予測
 
-### Offline / Emergency Mode
+### オフライン・非常時
 
 通信状態を確認する画面です。
 
@@ -212,7 +212,7 @@ THE HACK では、「現場の状況を正確に報告できること」を最�
 - LoRa Emergency Packet
 - 送信結果
 
-### Timeline
+### 報告履歴（Timeline）
 
 報告履歴を時系列で表示します。
 
@@ -221,7 +221,7 @@ THE HACK では、「現場の状況を正確に報告できること」を最�
 - どの避難所について
 - 何を報告したか
 
-### Incident
+### インシデント（Incident）
 
 アラート発生後の対応管理です。
 
@@ -229,13 +229,13 @@ THE HACK では、「現場の状況を正確に報告できること」を最�
 - 確認済み
 - 対応済み
 
-### Forecast
+### 予測（Forecast）
 
 水や人数の推移から不足予測を表示します。最初は簡易計算で実装します。
 
-## 11. Demo Scenario
+## 11. 利用イメージ
 
-THE HACK 向けの5分デモ想定です。
+通常通信から通信断、通信復旧までの利用例です。
 
 1. 避難所Aで通常報告する
    - 人数150
@@ -245,32 +245,32 @@ THE HACK 向けの5分デモ想定です。
 4. 避難所Aで新しい報告を入力する
    - 人数170
    - 水18
-5. Offline Mode としてローカル保存される
-6. LoRa で Emergency Packet を送信する
+5. オフライン状態としてローカル保存される
+6. LoRa で緊急パケットを送信する
 7. 本部側で WARNING が表示される
 8. Wi-Fiを復旧する
 9. 未同期レポートが自動同期される
-10. Timeline に履歴が追加される
-11. Forecast に「約2日で水不足」と表示される
+10. 報告履歴にデータが追加される
+11. 予測画面に「約2日で水不足」と表示される
 
-## 12. Technical Stack
+## 12. 技術構成
 
-### Frontend
+### フロントエンド
 
 - PWA
 - React / Vite
 - オフライン対応
 - localStorage / IndexedDB による一時保存
 
-### Backend
+### バックエンド
 
 - FastAPI
 
-### Database
+### データベース
 
 - PostgreSQL
 
-### Infra
+### インフラ
 
 - Docker
 - AWS ECS
@@ -285,37 +285,37 @@ THE HACK 向けの5分デモ想定です。
 
 - Terraform
 
-### Future Observability
+### 将来の可観測性
 
 - OpenTelemetry
 - Prometheus
 - Grafana
 - Datadog
 
-## 13. Current Implementation
+## 13. 現在の実装
 
-This repository currently contains a compact MVP:
+このリポジトリには、現在以下のMVP機能が実装されています。
 
-- FastAPI backend
-- PostgreSQL schema
-- React / Vite PWA frontend
-- Offline local save and later sync using `client_event_id`
-- Alert/status rules for people count, water stock, and stale reports
-- Emergency packet view for LoRa-style minimum reports
-- Timeline / Forecast / Incident screens are planned as MVP UI layers and will be expanded iteratively.
+- FastAPIによるバックエンドAPI
+- PostgreSQLのデータベーススキーマ
+- React / ViteによるPWAフロントエンド
+- `client_event_id`を使ったオフライン保存・再送・重複防止
+- 人数、水在庫、報告経過時間、緊急度に基づく状態判定
+- LoRaの最小報告を受信・保存する緊急パケット機能
+- 報告履歴、予測、インシデント管理の画面
 
-## 14. Alert Rules
+## 14. 状態判定ルール
 
-- `UNKNOWN`: no observation exists.
-- `ALERT`: the latest observation is older than 24 hours.
-- `WARNING`: water stock is lower than 20.
-- `WARNING`: urgency is `HIGH`.
-- `ALERT`: urgency is `CRITICAL`.
-- `NORMAL`: none of the above apply.
+- `UNKNOWN`: 報告がまだ存在しない。
+- `ALERT`: 最新報告から24時間を超えている。
+- `CRITICAL`: 報告された緊急度が `CRITICAL`。
+- `ALERT`: 報告された緊急度が `ALERT`。
+- `WARNING`: 報告された緊急度が `WARNING`、または水在庫が20未満。
+- `NORMAL`: 上記のいずれにも該当しない。
 
-## 15. Hardware Plan
+## 15. ハードウェア構成
 
-THE HACK の最小構成:
+検証時の最小構成:
 
 - LILYGO T-Beam x2
 - microUSB cable x2
@@ -338,24 +338,24 @@ THE HACK の最小構成:
 - 18650電池は扱いに注意が必要なので、最初はUSB給電またはモバイルバッテリー給電を優先する。
 - 大学内の検証や屋外利用では、技適取得済みのボードを使う。
 
-## 16. Team Roles
+## 16. チームの担当
 
-### Frontend
+### フロントエンド
 
-- Field Report UI
-- Dashboard UI
-- Offline状態表示
-- Timeline / Forecast 表示
+- 現場報告UI
+- ダッシュボードUI
+- オフライン状態表示
+- 報告履歴・予測表示
 
-### Backend
+### バックエンド
 
 - FastAPI
 - CRUD API
 - PostgreSQL設計
 - 同期処理
-- Alert判定
+- 状態判定
 
-### Infra
+### インフラ
 
 - Docker
 - AWS ECS
@@ -363,32 +363,32 @@ THE HACK の最小構成:
 - CI/CD
 - 将来的なLoRa接続設計
 
-### LoRa / Demo
+### LoRa・動作検証
 
 - T-Beam の送受信
-- Emergency Packet設計
-- PCへのSerial連携
-- デモシナリオ整理
+- 緊急パケット設計
+- PCへのシリアル連携
+- 一連の動作手順の整理
 
-## 17. Quick Start
+## 17. 起動方法
 
 ```powershell
 docker compose up --build
 ```
 
-Then open:
+起動後、以下を開きます。
 
 ```text
 http://localhost:8000
 ```
 
-API docs:
+API仕様:
 
 ```text
 http://localhost:8000/docs
 ```
 
-## 18. Local Development Without Docker
+## 18. Dockerを使わないローカル開発
 
 ```powershell
 cd backend
@@ -398,9 +398,55 @@ $env:DATABASE_URL="postgresql://shelteros:shelteros@localhost:5432/shelteros"
 .\.venv\Scripts\uvicorn app.main:app --reload
 ```
 
-Run tests:
+テストの実行:
 
 ```powershell
 cd backend
 python -m pytest
 ```
+
+## 19. 将来構想
+
+大規模災害では、携帯通信の障害、断水の長期化、避難所以外での滞在、医療・衛生ニーズの変化が同時に起こり得ます。TSUNAGUでは、現在のMVPを土台として以下の拡張を検討します。
+
+### ライフライン状況の把握
+
+水在庫とは別に、断水、停電、通信、建物の使用可否を報告できるようにします。
+
+- `water_supply_status`: 給水状況
+- `power_status`: 電力状況
+- `communication_status`: 通信状況
+- `building_status`: 建物の使用可否
+
+### 報告の鮮度と通信断の判別
+
+単に「未報告」と表示するだけでなく、最後に確認できた時刻や更新遅延を示し、通信障害の可能性と現場の異常を区別しやすくします。本部からの安否確認要求と、現場側の受信確認も扱えるようにします。
+
+### 未登録地点・避難所外避難への対応
+
+未登録の避難所コードを受信した場合も一覧から消さず、「要確認」として表示します。また、指定避難所だけでなく、臨時避難所、在宅避難、車中泊、福祉施設などを区別できる地点種別を追加します。
+
+### 支援要請の具体化
+
+既存の要請コードに加えて、電力、衛生、避難場所、医薬品などの要請を扱えるようにします。通常通信が利用できる場合は、必要数量、優先度、受付・配送・完了までの状態も管理します。
+
+```text
+REQ_POWER
+REQ_SANITATION
+REQ_SHELTER
+REQ_MEDICINE
+```
+
+### 健康・衛生と要配慮者への対応
+
+必要以上の個人情報を収集せず、医療支援が必要な人数、透析など継続治療が必要な人数、乳幼児や高齢者など要配慮者の概数を報告できる形を検討します。
+
+### LoRaゲートウェイと地理情報
+
+ゲートウェイの最終受信時刻、RSSI、SNR、再送キューを記録し、通信経路そのものの状態も確認できるようにします。避難所の緯度・経度や公開防災情報を組み合わせ、地図上で状況を把握できる機能も検討します。
+
+これらの構想は、2026年7月の熊本県を中心とする地震で報告された通信障害や断水、医療・衛生支援などの課題も参考にしています。
+
+- [厚生労働省: 令和8年熊本県を中心とする地震について](https://www.mhlw.go.jp/content/001733220.pdf)
+- [NTTドコモ: 熊本県を中心とした地震の影響による通信サービスへの影響](https://www.docomo.ne.jp/info/network/kanto/pages/260728_00_m.html)
+- [国土地理院: 令和8年（2026年）7月28日熊本県を中心とする地震に関する情報](https://www.gsi.go.jp/BOUSAI/20260728_kumamoto_earthquake.html)
