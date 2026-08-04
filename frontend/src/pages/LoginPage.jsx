@@ -1,72 +1,64 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { setApproverName } from "../utils/approverName.js";
+import { Navigate, useLocation } from "react-router";
+import { useAuth } from "../auth/AuthContext.jsx";
 
-/**
- * 本部(PC)ログイン画面(/login、決定事項24)。
- *
- * MVPスコープのため、パスワードは見た目のみで実際の検証は行わない。
- * ログイン時に入力した担当者名は「承認者名」としてlocalStorageに保存し、
- * Incidentの承認操作(決定事項7・12、今後実装予定)で使用する想定。
- */
 export default function LoginPage() {
-  const navigate = useNavigate();
-  const [nameInput, setNameInput] = useState("");
-  const [passwordInput, setPasswordInput] = useState("");
+  const { user, mode, loading, loginForDevelopment } = useAuth();
+  const location = useLocation();
+  const [error, setError] = useState("");
+  const from = location.state?.from || "/dashboard";
 
-  function handleSubmit(event) {
-    event.preventDefault();
-    const trimmedName = nameInput.trim();
-    if (!trimmedName) return;
+  if (!loading && user) {
+    return <Navigate to={user.role === "hq" ? from : "/field-report"} replace />;
+  }
 
-    setApproverName(trimmedName);
-    navigate("/dashboard", { replace: true });
+  async function handleDevelopmentLogin(role) {
+    setError("");
+    try {
+      await loginForDevelopment(role);
+    } catch {
+      setError("ローカルログインに失敗しました");
+    }
   }
 
   return (
     <div className="login-page">
       <header className="topbar">
-        <h1>ShelterOS</h1>
-        <span className="login-header-label">本部管理システム</span>
+        <h1>TSUNAGU</h1>
+        <span className="login-header-label">本部・現場職員ログイン</span>
       </header>
 
       <main className="login-main">
-        <form className="login-card" onSubmit={handleSubmit}>
+        <section className="login-card">
           <div className="login-brand">
             <div className="login-logo">
               <span className="login-logo-mark">S</span>
-              <span className="login-logo-text">ShelterOS</span>
+              <span className="login-logo-text">TSUNAGU</span>
             </div>
-            <p className="login-subtitle">本部管理システム ログイン</p>
+            <p className="login-subtitle">登録済みのGoogleアカウントでログイン</p>
           </div>
 
-          <label>
-            担当者名
-            <input
-              type="text"
-              value={nameInput}
-              onChange={(event) => setNameInput(event.target.value)}
-              placeholder="例: 田中"
-              required
-            />
-          </label>
+          {mode === "cognito" ? (
+            <a className="login-button login-google-button" href={`/api/auth/login?next=${encodeURIComponent(from)}`}>
+              Googleでログイン
+            </a>
+          ) : mode === "dev" ? (
+            <div className="dev-login-actions">
+              <p className="login-note">ローカル開発モード</p>
+              <button type="button" className="login-button" onClick={() => handleDevelopmentLogin("hq")}>
+                本部職員としてログイン
+              </button>
+              <button type="button" className="outline-button" onClick={() => handleDevelopmentLogin("field")}>
+                現場職員としてログイン
+              </button>
+            </div>
+          ) : (
+            <p className="form-error-message">認証設定が完了していません</p>
+          )}
 
-          <label>
-            パスワード
-            <input
-              type="password"
-              value={passwordInput}
-              onChange={(event) => setPasswordInput(event.target.value)}
-              placeholder="••••••••"
-            />
-          </label>
-
-          <button type="submit" className="login-button">
-            ログイン →
-          </button>
-
-          <p className="login-note">ログイン後、本部ダッシュボードに移動します</p>
-        </form>
+          {error && <p className="form-error-message">{error}</p>}
+          <a className="text-link-button" href="/field-report">ログインせず現場報告を送る</a>
+        </section>
       </main>
     </div>
   );

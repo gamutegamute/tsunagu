@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import DashboardTabs from "./DashboardTabs.jsx";
 import ShelterSearchAndSort from "./ShelterSearchAndSort.jsx";
 import ShelterFilterChips from "./ShelterFilterChips.jsx";
@@ -8,6 +8,7 @@ import ShelterCard from "./ShelterCard.jsx";
 import IncidentManagementTab from "./IncidentManagementTab.jsx";
 import AddShelterModal from "./AddShelterModal.jsx";
 import { useShelterFilters } from "../hooks/useShelterFilters.js";
+import { updateObservationVerification } from "../api.js";
 
 /** 本部ダッシュボード全体(Figmaの Headquarters Dashboard 画面を再現)。 */
 export default function Dashboard({ shelterStatusList, onSyncButtonClick }) {
@@ -25,6 +26,11 @@ export default function Dashboard({ shelterStatusList, onSyncButtonClick }) {
     setSortOrder,
     filteredAndSortedList,
   } = useShelterFilters(shelterStatusList);
+
+  async function handleVerificationChange(observationId, status) {
+    await updateObservationVerification(observationId, status);
+    await onSyncButtonClick();
+  }
 
   return (
     <section className="panel dashboard-panel">
@@ -72,6 +78,7 @@ export default function Dashboard({ shelterStatusList, onSyncButtonClick }) {
                 key={shelterStatus.shelter.id}
                 shelterStatus={shelterStatus}
                 onClick={() => navigate(`/dashboard/shelters/${shelterStatus.shelter.id}`)}
+                onVerificationChange={handleVerificationChange}
               />
             ))}
           </div>

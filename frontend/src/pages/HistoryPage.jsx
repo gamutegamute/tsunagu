@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import HistoryListItem from "../components/history/HistoryListItem.jsx";
 import { useShelterList } from "../hooks/useShelterList.js";
 import { getSentReportHistory } from "../utils/sentReportHistory.js";

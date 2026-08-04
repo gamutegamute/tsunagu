@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 import ShelterCard from "../components/ShelterCard.jsx";
 import WaterTrendChart from "../components/shelter-detail/WaterTrendChart.jsx";
 import PeopleTrendChart from "../components/shelter-detail/PeopleTrendChart.jsx";

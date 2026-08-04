@@ -1,0 +1,8 @@
+aws_region            = "ap-northeast-1"
+cognito_domain_prefix = "tsunagu-your-team"
+google_client_id      = "set-with-TF_VAR_google_client_id"
+google_client_secret  = "set-with-TF_VAR_google_client_secret"
+
+# Real addresses belong in encrypted CI secrets or an untracked terraform.tfvars.
+hq_emails    = ["hq@example.com"]
+field_emails = ["field@example.com"]

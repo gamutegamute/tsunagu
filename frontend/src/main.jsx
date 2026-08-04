@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import FieldReportPage from "./pages/FieldReportPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
@@ -10,47 +10,50 @@ import HistoryPage from "./pages/HistoryPage.jsx";
 import ShelterDetailPage from "./pages/ShelterDetailPage.jsx";
 import TimelinePage from "./pages/TimelinePage.jsx";
 import DevPreview from "./DevPreview.jsx";
+import { AuthProvider } from "./auth/AuthContext.jsx";
 import "./styles.css";
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register(`${import.meta.env.BASE_URL}service-worker.js`);
+  navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
 }
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Navigate to="/field-report" replace />} />
-        <Route path="/field-report" element={<FieldReportPage />} />
-        <Route path="/incident" element={<IncidentPage />} />
-        <Route path="/history" element={<HistoryPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route
-          path="/dashboard"
-          element={
-            <RequireApprover>
-              <DashboardPage />
-            </RequireApprover>
-          }
-        />
-        <Route
-          path="/dashboard/shelters/:shelterId"
-          element={
-            <RequireApprover>
-              <ShelterDetailPage />
-            </RequireApprover>
-          }
-        />
-        <Route
-          path="/dashboard/timeline"
-          element={
-            <RequireApprover>
-              <TimelinePage />
-            </RequireApprover>
-          }
-        />
-        <Route path="/dev-preview" element={<DevPreview />} />
-      </Routes>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Navigate to="/field-report" replace />} />
+          <Route path="/field-report" element={<FieldReportPage />} />
+          <Route path="/history" element={<HistoryPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/incident" element={<RequireApprover><IncidentPage /></RequireApprover>} />
+          <Route
+            path="/dashboard"
+            element={
+              <RequireApprover>
+                <DashboardPage />
+              </RequireApprover>
+            }
+          />
+          <Route
+            path="/dashboard/shelters/:shelterId"
+            element={
+              <RequireApprover>
+                <ShelterDetailPage />
+              </RequireApprover>
+            }
+          />
+          <Route
+            path="/dashboard/timeline"
+            element={
+              <RequireApprover>
+                <TimelinePage />
+              </RequireApprover>
+            }
+          />
+          <Route path="/dev-preview" element={<RequireApprover><DevPreview /></RequireApprover>} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   </React.StrictMode>,
 );

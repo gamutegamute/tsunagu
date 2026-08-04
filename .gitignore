@@ -10,6 +10,13 @@ __pycache__/
 # Local environment files
 .env
 .env.*
+.shelteros/
+.tsunagu/
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.auto.tfvars
 
 # OS generated files
 desktop.ini
