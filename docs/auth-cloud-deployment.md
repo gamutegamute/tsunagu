@@ -91,7 +91,7 @@ terraform apply `
 - `state_bucket_name`をGitHub Variable `TF_STATE_BUCKET`へ登録する。
 - `github_deploy_role_arn`をGitHub Secret `AWS_DEPLOY_ROLE_ARN`へ登録する。
 
-デプロイRoleの信頼先は、このリポジトリの`production` Environmentだけに限定される。初回構築を単純にするためAWS管理ポリシー`AdministratorAccess`を使用するので、GitHub EnvironmentにはRequired reviewersを必ず設定し、発表後はRoleを削除するか権限を縮小する。stateにはDBパスワードなどが含まれるため、公開・添付・コミットしない。
+デプロイRoleの信頼先は、このリポジトリの`production` Environmentだけに限定される。権限はTSUNAGUで使用するAWSサービスと`tsunagu-*` Roleの管理に限定している。GitHub EnvironmentにはRequired reviewersを必ず設定し、発表後はRoleを削除するか、運用に必要な範囲までさらに縮小する。stateにはDBパスワードなどが含まれるため、公開・添付・コミットしない。
 
 ## 初回デプロイ
 
