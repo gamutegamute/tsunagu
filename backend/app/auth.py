@@ -179,6 +179,7 @@ def login_redirect(next_path: str = "/dashboard") -> RedirectResponse:
             "code_challenge": challenge,
             "code_challenge_method": "S256",
             "identity_provider": "Google",
+            "prompt": "select_account",
         }
     )
     response = RedirectResponse(f"{settings.cognito_domain}/oauth2/authorize?{query}", status_code=302)

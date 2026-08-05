@@ -136,6 +136,7 @@ resource "aws_iam_role_policy" "github_deploy" {
           "ec2:DescribeAvailabilityZones",
           "ec2:DescribeSecurityGroups",
           "ec2:DescribeSubnets",
+          "ec2:DescribeVpcAttribute",
           "ec2:DescribeVpcs",
         ]
         Resource = "*"
@@ -198,6 +199,12 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = "*"
       },
       {
+        Sid      = "DescribeSSMParameters"
+        Effect   = "Allow"
+        Action   = "ssm:DescribeParameters"
+        Resource = "*"
+      },
+      {
         Sid    = "ManageTSUNAGUParameters"
         Effect = "Allow"
         Action = [
@@ -224,6 +231,17 @@ resource "aws_iam_role_policy" "github_deploy" {
           "logs:UntagResource",
         ]
         Resource = "*"
+      },
+      {
+        Sid      = "CreateRDSServiceLinkedRole"
+        Effect   = "Allow"
+        Action   = "iam:CreateServiceLinkedRole"
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "iam:AWSServiceName" = "rds.amazonaws.com"
+          }
+        }
       },
       {
         Sid    = "ManageTSUNAGURoles"

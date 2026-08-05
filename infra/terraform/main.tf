@@ -94,7 +94,7 @@ resource "aws_db_instance" "main" {
   db_subnet_group_name       = aws_db_subnet_group.main.name
   vpc_security_group_ids     = [aws_security_group.database.id]
   publicly_accessible        = false
-  backup_retention_period    = 7
+  backup_retention_period    = 1
   deletion_protection        = false
   skip_final_snapshot        = true
   auto_minor_version_upgrade = true
@@ -154,9 +154,10 @@ resource "aws_cognito_identity_provider" "google" {
   }
 
   attribute_mapping = {
-    email    = "email"
-    name     = "name"
-    username = "sub"
+    email          = "email"
+    email_verified = "email_verified"
+    name           = "name"
+    username       = "sub"
   }
 }
 

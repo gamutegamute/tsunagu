@@ -1,6 +1,10 @@
 name: 本番環境へ手動デプロイ
 
 on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       first_deploy:
@@ -17,8 +21,35 @@ concurrency:
   group: tsunagu-production
   cancel-in-progress: false
 
+env:
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
 jobs:
+  prepare:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.changes.outputs.should_deploy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          fetch-depth: 2
+      - name: Check whether production files changed
+        id: changes
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "${DEPLOY_SHA}^1" "$DEPLOY_SHA" | grep -Eq '^(\.dockerignore$|\.github/workflows/deploy-production\.yml$|backend/|frontend/|infra/terraform/)'; then
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
   deploy:
+    needs: prepare
+    if: needs.prepare.outputs.should_deploy == 'true'
     runs-on: ubuntu-latest
     environment: production
     env:
@@ -29,19 +60,11 @@ jobs:
       TF_VAR_google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       TF_VAR_hq_emails: ${{ secrets.HQ_EMAILS_JSON }}
       TF_VAR_field_emails: ${{ secrets.FIELD_EMAILS_JSON }}
-      TF_VAR_image_tag: ${{ github.sha }}
+      TF_VAR_image_tag: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
-      - name: Show OIDC claims for troubleshooting
-        uses: actions/github-script@v7
         with:
-          script: |
-            const token = await core.getIDToken("sts.amazonaws.com")
-            const payload = JSON.parse(
-              Buffer.from(token.split(".")[1], "base64url").toString("utf8")
-            )
-            core.info(`OIDC audience: ${JSON.stringify(payload.aud)}`)
-            core.info(`OIDC subject: ${payload.sub}`)
+          ref: ${{ env.DEPLOY_SHA }}
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
@@ -58,7 +81,7 @@ jobs:
           -backend-config="region=${AWS_REGION}"
           -backend-config="use_lockfile=true"
       - name: Create foundation on first deployment
-        if: inputs.first_deploy
+        if: github.event_name == 'workflow_dispatch' && inputs.first_deploy
         working-directory: infra/terraform
         run: terraform apply -auto-approve -var="create_service=false"
       - name: Read ECR repository
@@ -70,10 +93,10 @@ jobs:
         env:
           REPOSITORY: ${{ steps.ecr.outputs.repository }}
         run: |
-          docker build -f backend/Dockerfile -t "$REPOSITORY:${GITHUB_SHA}" .
-          docker push "$REPOSITORY:${GITHUB_SHA}"
+          docker build -f backend/Dockerfile -t "$REPOSITORY:${DEPLOY_SHA}" .
+          docker push "$REPOSITORY:${DEPLOY_SHA}"
       - name: Create setup-mode service on first deployment
-        if: inputs.first_deploy
+        if: github.event_name == 'workflow_dispatch' && inputs.first_deploy
         working-directory: infra/terraform
         run: terraform apply -auto-approve -var="create_service=true" -var="application_base_url="
       - name: Read application URL
