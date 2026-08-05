@@ -44,7 +44,11 @@ export function AuthProvider({ children }) {
       await refresh();
     },
     async signOut() {
-      await logout();
+      const result = await logout();
+      if (result?.logout_url) {
+        window.location.assign(result.logout_url);
+        return;
+      }
       await refresh();
     },
   }), [user, mode, loading, refresh]);
