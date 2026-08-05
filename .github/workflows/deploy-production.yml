@@ -26,7 +26,9 @@ env:
 
 jobs:
   prepare:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: >-
+      github.repository == 'gamutegamute/2026-Team-11' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     outputs:
       should_deploy: ${{ steps.changes.outputs.should_deploy }}
