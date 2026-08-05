@@ -91,7 +91,10 @@ resource "aws_iam_role" "github_deploy" {
         }
         StringLike = {
           # GitHub appends the environment or branch context to the repository subject.
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:*"
+          "token.actions.githubusercontent.com:sub" = [
+            "repo:${var.github_repository}:environment:*",
+            "repo:${var.github_repository}:ref:refs/heads/main",
+          ]
         }
       }
     }]
