@@ -19,7 +19,7 @@ export default function DevPreview() {
   const shelters = useShelterList();
   const { pendingReportCount, addReportToPendingQueue, sendPendingReports } = useOfflineReportQueue();
   const { dashboardItems, reloadDashboard } = useDashboardData();
-  const [networkMode] = useNetworkMode(() => {
+  const [networkMode, offlinePhase] = useNetworkMode(() => {
     sendPendingReports().then(reloadDashboard);
   });
 
@@ -43,7 +43,7 @@ export default function DevPreview() {
       urgency,
       memo,
       observed_at: new Date().toISOString(),
-      source: networkMode === "offline" || networkMode === "emergency" ? "offline" : "web",
+      source: networkMode === "offline" ? "offline" : "web",
     };
 
     try {
@@ -72,6 +72,7 @@ export default function DevPreview() {
             <FieldReportForm
               shelters={shelters}
               networkMode={networkMode}
+              offlinePhase={offlinePhase}
               pendingReportCount={pendingReportCount}
               onSubmitReport={handleSubmitReport}
             />
