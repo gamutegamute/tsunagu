@@ -204,6 +204,7 @@ resource "aws_iam_role_policy" "github_deploy" {
         Action = [
           "ssm:AddTagsToResource",
           "ssm:DeleteParameter",
+          "ssm:DescribeParameters",
           "ssm:GetParameter",
           "ssm:GetParameters",
           "ssm:ListTagsForResource",
