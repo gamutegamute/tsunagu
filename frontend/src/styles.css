@@ -48,6 +48,12 @@ textarea {
   letter-spacing: 0;
 }
 
+.topbar-logo {
+  display: block;
+  height: 32px;
+  width: auto;
+}
+
 .topbar p {
   margin: 4px 0 0;
   color: #c7d2ce;
@@ -784,23 +790,9 @@ legend {
   gap: 8px;
 }
 
-.login-logo-mark {
-  align-items: center;
-  background: var(--green);
-  border-radius: 8px;
-  color: white;
-  display: flex;
-  font-size: 18px;
-  font-weight: 700;
-  height: 32px;
-  justify-content: center;
-  width: 32px;
-}
-
-.login-logo-text {
-  color: var(--ink);
-  font-size: 24px;
-  font-weight: 700;
+.login-logo-image {
+  height: 64px;
+  width: auto;
 }
 
 .login-subtitle {

@@ -70,7 +70,11 @@ export default function FieldReportPage() {
     <>
       <header className="topbar">
         <div>
-          <h1>TSUNAGU</h1>
+          <img
+            className="topbar-logo"
+            src={`${import.meta.env.BASE_URL}logo/logo-horizontal.png`}
+            alt="TSUNAGU"
+          />
           <p>通信が途絶えても、現場の状況は途絶えない。</p>
         </div>
         <div className="topbar-right-group">
