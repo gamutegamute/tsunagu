@@ -1,19 +1,325 @@
 #pragma once
 
-// Integration placeholder. Replace this constant with the lightweight HTML/CSS/JS
-// delivered by the frontend team. The page must POST application/x-www-form-urlencoded
-// data to /send using these names:
-// time, people_count, water_stock, status, request_code.
+// Generated from tools/tbeam-emergency-form.html.
+// Run `python tools/embed_tbeam_portal.py` after editing the source HTML.
 const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>TSUNAGU</title>
-  <body>
-    <h1>TSUNAGU</h1>
-    <p>非常用報告フォームを準備しています。</p>
-    <p>避難所: {{SHELTER_CODE}}</p>
-  </body>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>TSUNAGU 非常用報告</title>
+<style>
+  /* 軽量化のため外部フォント・アイコンは使用しない */
+  :root {
+    --green: #1a5c4a;
+    --green-dark: #13201e;
+    --bg: #f5f5f3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    background: var(--bg);
+    color: #1a1a1a;
+  }
+  header {
+    background: var(--green-dark);
+    color: #fff;
+    padding: 16px 20px;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 18px;
+  }
+  header p {
+    margin: 4px 0 0;
+    font-size: 12px;
+    opacity: 0.85;
+  }
+  main {
+    padding: 16px;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  .field {
+    margin-bottom: 16px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  input, select {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px; /* iOSでズームされないよう16px以上 */
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    background: #fff;
+  }
+  .shelter-code {
+    background: #eee;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .packet-preview {
+    font-family: monospace;
+    font-size: 12px;
+    background: #fff;
+    border: 1px dashed #999;
+    border-radius: 6px;
+    padding: 8px 10px;
+    word-break: break-all;
+    color: #555;
+  }
+  button {
+    width: 100%;
+    padding: 16px;
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--green);
+    border: none;
+    border-radius: 8px;
+  }
+  button:disabled {
+    background: #999;
+  }
+  .result {
+    margin-top: 14px;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: none;
+  }
+  .result.success {
+    display: block;
+    background: #e5f3ec;
+    color: #1a5c4a;
+  }
+  .result.error {
+    display: block;
+    background: #fbe7e7;
+    color: #a12a2a;
+  }
+  .note {
+    font-size: 11px;
+    color: #777;
+    margin-top: 10px;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>TSUNAGU 非常用報告</h1>
+  <p>LoRa経由で本部へ最低限の情報を送ります</p>
+</header>
+
+<main>
+  <div class="field">
+    <label>避難所コード</label>
+    <!--
+      T-BeamがWebサーバー配信前に {{SHELTER_CODE}} を実際の値へ置き換える。
+      (決定事項30・32: 避難所コードはフォームからは送信しない。Arduino側の
+      device_config.h の固定値を使用する)
+    -->
+    <div class="shelter-code" id="shelterCodeDisplay">{{SHELTER_CODE}}</div>
+  </div>
+
+  <div class="field">
+    <label for="people">人数 <span aria-hidden="true">*</span></label>
+    <input type="number" id="people" inputmode="numeric" min="0" max="1000000" step="1" placeholder="例: 170" required>
+  </div>
+
+  <div class="field">
+    <label for="water">水在庫(L) <span aria-hidden="true">*</span></label>
+    <input type="number" id="water" inputmode="numeric" min="0" max="1000000" step="1" placeholder="例: 18" required>
+  </div>
+
+  <div class="field">
+    <label for="urgency">緊急度</label>
+    <select id="urgency">
+      <option value="NORMAL" selected>NORMAL(通常)</option>
+      <option value="WARNING">WARNING(注意)</option>
+      <option value="ALERT">ALERT(警戒)</option>
+      <option value="CRITICAL">CRITICAL(重大)</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="requestCode">要請コード</label>
+    <select id="requestCode">
+      <option value="NONE">要請なし</option>
+      <option value="REQ_WATER">REQ_WATER(水)</option>
+      <option value="REQ_FOOD">REQ_FOOD(食料)</option>
+      <option value="REQ_MEDICAL">REQ_MEDICAL(医療)</option>
+      <option value="REQ_RESCUE">REQ_RESCUE(救助)</option>
+      <option value="REQ_CONFIRM">REQ_CONFIRM(安否確認)</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>送信内容プレビュー</label>
+    <div class="packet-preview" id="packetPreview">-</div>
+  </div>
+
+  <button id="submitBtn" onclick="submitReport()">LoRaで送信する</button>
+
+  <div class="result" id="result"></div>
+
+  <p class="note">
+    ※ この画面はT-Beamが配信する非常用ページです。本部が受信したことを保証するものではありません。<br>
+    ※ 報告者名・メモなどの詳細は、通信復旧後にTSUNAGUアプリからご報告ください。
+  </p>
+</main>
+
+<script>
+  // 決定事項30・32: 避難所コードはT-Beamが配信時に{{SHELTER_CODE}}を
+  // 実際の値に置き換える。JS側はそのDOM表示をそのまま参照する。
+  const SHELTER_CODE = document.getElementById("shelterCodeDisplay").textContent.trim();
+
+  // 決定事項32: インフラ側の実装(hardware/TBeamEmergencySender)に合わせた契約
+  const SUBMIT_ENDPOINT = "/send";
+
+  // 決定事項31(改訂版): クラウド版アプリから遷移してきた場合、
+  // 個人情報を含まない最低限の値だけをURLパラメータで事前入力する
+  // 例: http://192.168.4.1/?people=170&water=18&status=WARNING&request=REQ_WATER
+  function applyPrefillFromQuery() {
+    const params = new URLSearchParams(window.location.search);
+    const people = params.get("people");
+    const water = params.get("water");
+    const status = params.get("status");
+    const request = params.get("request");
+
+    if (people !== null) document.getElementById("people").value = people;
+    if (water !== null) document.getElementById("water").value = water;
+    if (status !== null && ["NORMAL", "WARNING", "ALERT", "CRITICAL"].includes(status)) {
+      document.getElementById("urgency").value = status;
+    }
+    if (request !== null) {
+      const select = document.getElementById("requestCode");
+      const hasOption = Array.from(select.options).some(function (opt) { return opt.value === request; });
+      if (hasOption) select.value = request;
+    }
+  }
+
+  function pad2(n) {
+    return String(n).padStart(2, "0");
+  }
+
+  function nowHHMM() {
+    const d = new Date();
+    return pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  }
+
+  // 人数・水在庫は必須項目とする。空欄のまま「0」として送ってしまうと
+  // 実際には無回答なのに「0人・水0L」という誤報になるため、未入力・不正な
+  // 値(負の数・小数・上限超過)の場合は送信をブロックし、その理由を返す。
+  const MAX_REPORT_VALUE = 1000000;
+
+  function validateCountField(rawValue, label) {
+    const trimmed = (rawValue || "").trim();
+    if (trimmed === "") {
+      return { valid: false, message: label + "を入力してください" };
+    }
+    if (!/^\d+$/.test(trimmed)) {
+      return { valid: false, message: label + "は0以上の整数で入力してください" };
+    }
+    const value = Number(trimmed);
+    if (value > MAX_REPORT_VALUE) {
+      return { valid: false, message: label + "は" + MAX_REPORT_VALUE + "以下で入力してください" };
+    }
+    return { valid: true, value: value };
+  }
+
+  function validateForm() {
+    const peopleResult = validateCountField(document.getElementById("people").value, "人数");
+    if (!peopleResult.valid) return peopleResult;
+
+    const waterResult = validateCountField(document.getElementById("water").value, "水在庫");
+    if (!waterResult.valid) return waterResult;
+
+    return { valid: true, people: peopleResult.value, water: waterResult.value };
+  }
+
+  function buildPacket() {
+    const people = document.getElementById("people").value || "0";
+    const water = document.getElementById("water").value || "0";
+    const urgency = document.getElementById("urgency").value;
+    const requestCode = document.getElementById("requestCode").value;
+    const time = nowHHMM();
+    // v1|避難所コード|時刻|人数|水|緊急度|要請コード
+    // (プレビュー表示専用。実際の送信前バリデーションはsubmitReport内で行う)
+    return ["v1", SHELTER_CODE, time, people, water, urgency, requestCode].join("|");
+  }
+
+  function updatePreview() {
+    document.getElementById("packetPreview").textContent = buildPacket();
+  }
+
+  ["people", "water", "urgency", "requestCode"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", updatePreview);
+    document.getElementById(id).addEventListener("change", updatePreview);
+  });
+  applyPrefillFromQuery();
+  updatePreview();
+
+  function showResult(success, message) {
+    const el = document.getElementById("result");
+    el.className = "result " + (success ? "success" : "error");
+    el.textContent = message;
+  }
+
+  async function submitReport() {
+    const validation = validateForm();
+    if (!validation.valid) {
+      showResult(false, validation.message);
+      return;
+    }
+
+    const btn = document.getElementById("submitBtn");
+    btn.disabled = true;
+    btn.textContent = "送信中...";
+
+    // 決定事項32: application/x-www-form-urlencoded、
+    // フィールド名は time / people_count / water_stock / status / request_code
+    // 避難所コードは送らない(Arduino側の固定値を使用)
+    const formData = new URLSearchParams();
+    formData.set("time", nowHHMM());
+    formData.set("people_count", String(validation.people));
+    formData.set("water_stock", String(validation.water));
+    formData.set("status", document.getElementById("urgency").value);
+    formData.set("request_code", document.getElementById("requestCode").value);
+
+    try {
+      const res = await fetch(SUBMIT_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: formData.toString()
+      });
+
+      if (res.ok) {
+        // 本部が受信したかどうかはこの時点ではわからないため、
+        // 「送出完了」に留める(「本部受信済み」とは表示しない)
+        showResult(true, "LoRa送出完了");
+      } else {
+        showResult(false, "LoRa送信に失敗しました。入力内容を確認してください");
+      }
+    } catch (e) {
+      showResult(false, "LoRa送信に失敗しました。入力内容を確認してください");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "LoRaで送信する";
+    }
+  }
+</script>
+
+</body>
 </html>
 )TSUNAGU_PORTAL";

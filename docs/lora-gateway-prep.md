@@ -26,12 +26,25 @@ v1|AIT001|21:04|170|18|WARNING|REQ_WATER
 
 - `hardware/TBeamEmergencySender/TBeamEmergencySender.ino`: Wi-Fi AP、フォーム配信、入力検証、LoRa送信
 - `hardware/TBeamEmergencySender/device_config.h`: 避難所コード、AP、無線設定
-- `hardware/TBeamEmergencySender/portal_html.h`: フロント提供フォームを組み込むための仮置き
+- `hardware/TBeamEmergencySender/portal_html.h`: フロント提供フォームを組み込んだArduino用ヘッダー
+- `tools/embed_tbeam_portal.py`: フロント提供フォームからArduino用ヘッダーを生成する同期ツール
 - `hardware/TBeamEmergencyReceiver/TBeamEmergencyReceiver.ino`: LoRa受信、シリアルへのPacket出力
 
 ## フロント提供フォームとの接続
 
-フォームのHTML/CSS/JSはフロント担当から受け取り、`portal_html.h`の`PORTAL_HTML`へ埋め込みます。Arduino側が受け付ける契約は次のとおりです。
+フォームのHTML/CSS/JSは`tools/tbeam-emergency-form.html`で管理し、次のコマンドで`portal_html.h`へ埋め込みます。
+
+```powershell
+python tools/embed_tbeam_portal.py
+```
+
+同期済みか確認する場合は、次を実行します。
+
+```powershell
+python tools/embed_tbeam_portal.py --check
+```
+
+Arduino側が受け付ける契約は次のとおりです。
 
 - 送信先: `POST /send`
 - Content-Type: `application/x-www-form-urlencoded`
@@ -45,7 +58,7 @@ v1|AIT001|21:04|170|18|WARNING|REQ_WATER
 
 フォーム内で避難所コードを確認表示する場所には`{{SHELTER_CODE}}`を入れます。T-Beamが配信前に設定値へ置き換えます。
 
-現在の`portal_html.h`は接続確認用の仮表示だけです。フロント提供版を受け取るまでは報告フォームとして使用できません。
+`portal_html.h`は生成ファイルです。フォームを変更するときは`tools/tbeam-emergency-form.html`を編集し、同期コマンドを再実行してください。
 
 ## Arduino IDEで検証する
 
