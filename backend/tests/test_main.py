@@ -1,4 +1,5 @@
 import concurrent.futures
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 import pytest
@@ -99,6 +100,19 @@ def test_removed_allowlist_user_loses_access(monkeypatch):
 
     monkeypatch.setenv("AUTH_HQ_EMAILS", "")
     assert client.get("/api/auth/me").status_code == 401
+
+
+def test_google_login_prompts_for_account_selection(monkeypatch):
+    monkeypatch.setenv("AUTH_MODE", "cognito")
+    monkeypatch.setenv("COGNITO_DOMAIN", "https://example.auth.ap-northeast-1.amazoncognito.com")
+    monkeypatch.setenv("COGNITO_CLIENT_ID", "test-client-id")
+
+    response = client.get("/api/auth/login", follow_redirects=False)
+
+    assert response.status_code == 302
+    query = parse_qs(urlparse(response.headers["location"]).query)
+    assert query["identity_provider"] == ["Google"]
+    assert query["prompt"] == ["select_account"]
 
 
 def test_field_user_cannot_create_shelter():
