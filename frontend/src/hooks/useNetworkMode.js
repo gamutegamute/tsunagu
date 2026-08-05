@@ -28,9 +28,16 @@ export function useNetworkMode(onBackOnline) {
   onBackOnlineRef.current = onBackOnline;
 
   const setNetworkMode = useCallback((mode) => {
+    const wasOnline = onlineRef.current;
     modeRef.current = mode;
     onlineRef.current = mode === "normal";
     setNetworkModeState(mode);
+    // 「オフライン」「非常時」から手動で「通常」に切り替えたときも、
+    // 自動検知で復旧したときと同様に未送信データを再送する。
+    // 「通常」から「通常」(変化なし)のときは呼ばない。
+    if (mode === "normal" && !wasOnline) {
+      onBackOnlineRef.current();
+    }
   }, []);
 
   useEffect(() => {
