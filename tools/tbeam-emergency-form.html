@@ -128,20 +128,20 @@
   </div>
 
   <div class="field">
-    <label for="people">人数</label>
-    <input type="number" id="people" inputmode="numeric" min="0" placeholder="例: 170">
+    <label for="people">人数 <span aria-hidden="true">*</span></label>
+    <input type="number" id="people" inputmode="numeric" min="0" max="1000000" step="1" placeholder="例: 170" required>
   </div>
 
   <div class="field">
-    <label for="water">水在庫(L)</label>
-    <input type="number" id="water" inputmode="numeric" min="0" placeholder="例: 18">
+    <label for="water">水在庫(L) <span aria-hidden="true">*</span></label>
+    <input type="number" id="water" inputmode="numeric" min="0" max="1000000" step="1" placeholder="例: 18" required>
   </div>
 
   <div class="field">
     <label for="urgency">緊急度</label>
     <select id="urgency">
-      <option value="NORMAL">NORMAL(通常)</option>
-      <option value="WARNING" selected>WARNING(注意)</option>
+      <option value="NORMAL" selected>NORMAL(通常)</option>
+      <option value="WARNING">WARNING(注意)</option>
       <option value="ALERT">ALERT(警戒)</option>
       <option value="CRITICAL">CRITICAL(重大)</option>
     </select>
@@ -213,6 +213,36 @@
     return pad2(d.getHours()) + ":" + pad2(d.getMinutes());
   }
 
+  // 人数・水在庫は必須項目とする。空欄のまま「0」として送ってしまうと
+  // 実際には無回答なのに「0人・水0L」という誤報になるため、未入力・不正な
+  // 値(負の数・小数・上限超過)の場合は送信をブロックし、その理由を返す。
+  const MAX_REPORT_VALUE = 1000000;
+
+  function validateCountField(rawValue, label) {
+    const trimmed = (rawValue || "").trim();
+    if (trimmed === "") {
+      return { valid: false, message: label + "を入力してください" };
+    }
+    if (!/^\d+$/.test(trimmed)) {
+      return { valid: false, message: label + "は0以上の整数で入力してください" };
+    }
+    const value = Number(trimmed);
+    if (value > MAX_REPORT_VALUE) {
+      return { valid: false, message: label + "は" + MAX_REPORT_VALUE + "以下で入力してください" };
+    }
+    return { valid: true, value: value };
+  }
+
+  function validateForm() {
+    const peopleResult = validateCountField(document.getElementById("people").value, "人数");
+    if (!peopleResult.valid) return peopleResult;
+
+    const waterResult = validateCountField(document.getElementById("water").value, "水在庫");
+    if (!waterResult.valid) return waterResult;
+
+    return { valid: true, people: peopleResult.value, water: waterResult.value };
+  }
+
   function buildPacket() {
     const people = document.getElementById("people").value || "0";
     const water = document.getElementById("water").value || "0";
@@ -220,6 +250,7 @@
     const requestCode = document.getElementById("requestCode").value;
     const time = nowHHMM();
     // v1|避難所コード|時刻|人数|水|緊急度|要請コード
+    // (プレビュー表示専用。実際の送信前バリデーションはsubmitReport内で行う)
     return ["v1", SHELTER_CODE, time, people, water, urgency, requestCode].join("|");
   }
 
@@ -241,6 +272,12 @@
   }
 
   async function submitReport() {
+    const validation = validateForm();
+    if (!validation.valid) {
+      showResult(false, validation.message);
+      return;
+    }
+
     const btn = document.getElementById("submitBtn");
     btn.disabled = true;
     btn.textContent = "送信中...";
@@ -250,8 +287,8 @@
     // 避難所コードは送らない(Arduino側の固定値を使用)
     const formData = new URLSearchParams();
     formData.set("time", nowHHMM());
-    formData.set("people_count", document.getElementById("people").value || "0");
-    formData.set("water_stock", document.getElementById("water").value || "0");
+    formData.set("people_count", String(validation.people));
+    formData.set("water_stock", String(validation.water));
     formData.set("status", document.getElementById("urgency").value);
     formData.set("request_code", document.getElementById("requestCode").value);
 
