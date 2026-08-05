@@ -199,12 +199,17 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = "*"
       },
       {
+        Sid      = "DescribeSSMParameters"
+        Effect   = "Allow"
+        Action   = "ssm:DescribeParameters"
+        Resource = "*"
+      },
+      {
         Sid    = "ManageTSUNAGUParameters"
         Effect = "Allow"
         Action = [
           "ssm:AddTagsToResource",
           "ssm:DeleteParameter",
-          "ssm:DescribeParameters",
           "ssm:GetParameter",
           "ssm:GetParameters",
           "ssm:ListTagsForResource",
