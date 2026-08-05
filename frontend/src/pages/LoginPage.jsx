@@ -32,7 +32,7 @@ export default function LoginPage() {
         <section className="login-card">
           <div className="login-brand">
             <div className="login-logo">
-              <span className="login-logo-mark">S</span>
+              <span className="login-logo-mark">T</span>
               <span className="login-logo-text">TSUNAGU</span>
             </div>
             <p className="login-subtitle">登録済みのGoogleアカウントでログイン</p>
