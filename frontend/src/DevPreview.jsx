@@ -7,6 +7,7 @@ import { useOfflineReportQueue } from "./hooks/useOfflineReportQueue.js";
 import { useDashboardData } from "./hooks/useDashboardData.js";
 import { createObservation } from "./api.js";
 import { STORAGE_KEYS } from "./utils/storageKeys.js";
+import { createClientEventId } from "./utils/clientEventId.js";
 
 /**
  * 開発確認用プレビューページ。本部権限でURLを直接開いた場合だけ表示する。
@@ -36,7 +37,7 @@ export default function DevPreview() {
     const payload = {
       reporter_name: trimmedReporterName,
       shelter_id: shelterId,
-      client_event_id: crypto.randomUUID(),
+      client_event_id: createClientEventId(),
       people_count: peopleCount,
       water_stock: waterStock,
       urgency,
