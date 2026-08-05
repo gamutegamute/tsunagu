@@ -59,26 +59,6 @@ textarea {
   color: #c7d2ce;
 }
 
-.mode-controls {
-  display: flex;
-  gap: 8px;
-}
-
-.mode-button {
-  border: 1px solid rgba(255, 255, 255, 0.32);
-  border-radius: 999px;
-  background: transparent;
-  color: white;
-  cursor: pointer;
-  font-weight: 700;
-  padding: 8px 12px;
-}
-
-.mode-button.active {
-  background: white;
-  color: var(--ink);
-}
-
 .layout-mobile {
   padding: 16px;
   max-width: 480px;
@@ -130,10 +110,6 @@ h2 {
   background: var(--deep-red);
 }
 
-.network.emergency {
-  background: var(--red);
-}
-
 .status-hero {
   border-radius: 8px;
   color: white;
@@ -147,7 +123,8 @@ h2 {
   background: var(--deep-red);
 }
 
-.status-hero.emergency {
+/* 決定事項26: オフライン内のLoRa送信フェーズ(旧Emergencyの見た目を踏襲) */
+.status-hero.offline.lora-phase {
   background: #12201e;
   border: 2px solid var(--red);
 }
@@ -720,14 +697,6 @@ legend {
   .topbar {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .mode-controls {
-    width: 100%;
-  }
-
-  .mode-button {
-    flex: 1;
   }
 
   .summary {
