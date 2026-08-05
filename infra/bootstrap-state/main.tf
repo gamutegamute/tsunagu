@@ -23,6 +23,12 @@ variable "github_repository" {
   default     = "NxTEND-THE-HACK/2026-Team-11"
 }
 
+variable "github_oidc_subject" {
+  description = "Exact GitHub OIDC subject. Leave empty to use the production environment subject derived from github_repository."
+  type        = string
+  default     = ""
+}
+
 variable "github_oidc_provider_arn" {
   description = "Existing GitHub OIDC provider ARN. Leave empty to create one."
   type        = string
@@ -73,6 +79,7 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 locals {
   github_oidc_provider_arn = var.github_oidc_provider_arn != "" ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github[0].arn
+  github_oidc_subject      = var.github_oidc_subject != "" ? var.github_oidc_subject : "repo:${var.github_repository}:environment:production"
 }
 
 resource "aws_iam_role" "github_deploy" {
@@ -88,13 +95,7 @@ resource "aws_iam_role" "github_deploy" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-        }
-        StringLike = {
-          # GitHub appends the environment or branch context to the repository subject.
-          "token.actions.githubusercontent.com:sub" = [
-            "repo:${var.github_repository}:environment:*",
-            "repo:${var.github_repository}:ref:refs/heads/main",
-          ]
+          "token.actions.githubusercontent.com:sub" = local.github_oidc_subject
         }
       }
     }]
