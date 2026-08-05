@@ -90,13 +90,31 @@ jobs:
         id: ecr
         working-directory: infra/terraform
         run: echo "repository=$(terraform output -raw ecr_repository_url)" >> "$GITHUB_OUTPUT"
+      - name: Check whether immutable image already exists
+        id: image
+        env:
+          REPOSITORY: ${{ steps.ecr.outputs.repository }}
+        run: |
+          repository_name="${REPOSITORY#*/}"
+          if aws ecr describe-images \
+            --repository-name "$repository_name" \
+            --image-ids "imageTag=${DEPLOY_SHA}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: aws-actions/amazon-ecr-login@v2
+        if: steps.image.outputs.exists != 'true'
       - name: Build and push immutable image
+        if: steps.image.outputs.exists != 'true'
         env:
           REPOSITORY: ${{ steps.ecr.outputs.repository }}
         run: |
           docker build -f backend/Dockerfile -t "$REPOSITORY:${DEPLOY_SHA}" .
           docker push "$REPOSITORY:${DEPLOY_SHA}"
+      - name: Reuse existing immutable image
+        if: steps.image.outputs.exists == 'true'
+        run: echo "Reusing ${DEPLOY_SHA} from ECR"
       - name: Create setup-mode service on first deployment
         if: github.event_name == 'workflow_dispatch' && inputs.first_deploy
         working-directory: infra/terraform
