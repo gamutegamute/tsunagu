@@ -233,6 +233,17 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = "*"
       },
       {
+        Sid      = "CreateRDSServiceLinkedRole"
+        Effect   = "Allow"
+        Action   = "iam:CreateServiceLinkedRole"
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "iam:AWSServiceName" = "rds.amazonaws.com"
+          }
+        }
+      },
+      {
         Sid    = "ManageTSUNAGURoles"
         Effect = "Allow"
         Action = [
