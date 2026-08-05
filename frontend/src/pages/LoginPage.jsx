@@ -32,8 +32,11 @@ export default function LoginPage() {
         <section className="login-card">
           <div className="login-brand">
             <div className="login-logo">
-              <span className="login-logo-mark">T</span>
-              <span className="login-logo-text">TSUNAGU</span>
+              <img
+                className="login-logo-image"
+                src={`${import.meta.env.BASE_URL}logo/logo-stacked.png`}
+                alt="TSUNAGU"
+              />
             </div>
             <p className="login-subtitle">登録済みのGoogleアカウントでログイン</p>
           </div>

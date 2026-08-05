@@ -31,7 +31,11 @@ export default function DashboardPage() {
     <>
       <header className="topbar">
         <div>
-          <h1>TSUNAGU</h1>
+          <img
+            className="topbar-logo"
+            src={`${import.meta.env.BASE_URL}logo/logo-horizontal.png`}
+            alt="TSUNAGU"
+          />
           <p>本部ダッシュボード</p>
         </div>
         <AuthStatus />
