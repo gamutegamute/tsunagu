@@ -136,6 +136,7 @@ resource "aws_iam_role_policy" "github_deploy" {
           "ec2:DescribeAvailabilityZones",
           "ec2:DescribeSecurityGroups",
           "ec2:DescribeSubnets",
+          "ec2:DescribeVpcAttribute",
           "ec2:DescribeVpcs",
         ]
         Resource = "*"
