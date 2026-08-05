@@ -12,10 +12,14 @@ import { STORAGE_KEYS } from "../utils/storageKeys.js";
  *
  * 人数・水・緊急度・メモ・報告者名・避難所はすべてこのコンポーネントの中だけで
  * 状態管理する。送信時にまとめて onSubmitReport に渡し、実際のAPI呼び出しや
- * オフラインキューへの退避、非常時パケットの組み立てなどは親(App.jsx)に任せる
+ * オフラインキューへの退避などは親(FieldReportPage)に任せる
  * (このコンポーネントは「フォームの入力・送信」にだけ責任を持つ)。
+ *
+ * 通信状態(networkMode/offlinePhase)はすべて自動判定(useNetworkMode、決定事項27・29)
+ * であり、このフォーム自身には手動切り替えの手段を持たせない。実際のLoRa送信は
+ * T-Beam専用ページ(決定事項28・29)が担当するため、ここには送信処理を持たせない。
  */
-export default function FieldReportForm({ shelters, networkMode, pendingReportCount, onSubmitReport }) {
+export default function FieldReportForm({ shelters, networkMode, offlinePhase, pendingReportCount, onSubmitReport }) {
   const [reporterName, setReporterName] = useState(() => localStorage.getItem(STORAGE_KEYS.reporterName) || "");
   const [shelterId, setShelterId] = useState("");
   const [peopleCount, setPeopleCount] = useState(50);
@@ -47,12 +51,10 @@ export default function FieldReportForm({ shelters, networkMode, pendingReportCo
     <section className="panel report-panel">
       <div className="section-title">
         <h2>現場報告</h2>
-        <span className={`network ${networkMode}`}>
-          {networkMode === "emergency" ? "非常時" : networkMode === "offline" ? "オフライン" : "オンライン"}
-        </span>
+        <span className={`network ${networkMode}`}>{networkMode === "offline" ? "オフライン" : "オンライン"}</span>
       </div>
 
-      <StatusHeroBanner networkMode={networkMode} />
+      <StatusHeroBanner networkMode={networkMode} offlinePhase={offlinePhase} />
 
       <form onSubmit={handleSubmit}>
         <ReporterNameField reporterName={reporterName} onChange={setReporterName} />

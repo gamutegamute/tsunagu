@@ -1,4 +1,3 @@
-import NetworkModeSwitcher from "../components/NetworkModeSwitcher.jsx";
 import FieldReportForm from "../components/FieldReportForm.jsx";
 import FieldReportNavButtons from "../components/FieldReportNavButtons.jsx";
 import { useShelterList } from "../hooks/useShelterList.js";
@@ -14,9 +13,17 @@ import { createClientEventId } from "../utils/clientEventId.js";
 /**
  * 現場報告画面(モバイル向け、/field-report)。
  *
- * 決定事項21の通り、通信状態インジケーター(NetworkModeSwitcher)と
- * オフライン/非常時バナー(StatusHeroBanner、FieldReportForm内)は
- * このページに閉じており、Dashboard側(/dashboard)には表示しない。
+ * 決定事項21・27・29の通り、通信状態バナー(StatusHeroBanner、FieldReportForm内)は
+ * このページに閉じており、Dashboard側(/dashboard)には表示しない。通信状態は
+ * すべて自動判定(useNetworkMode)で、手動切り替えボタンは存在しない。
+ *
+ * 決定事項29: T-Beamが配信する非常用ページはこのクラウド版アプリとは完全に別サイト
+ * であり、ブラウザのJavaScriptから直接LoRa送信をトリガーすることはできない。その
+ * ため、このアプリ側は「オフラインと判定されてから10秒経ったら『LoRa使用可』の
+ * 状態を画面に表示し、T-Beamの非常用Wi-Fi(TSUNAGU-Emergency)への案内を出す」
+ * ところまでを担当し、実際のLoRa送信処理・送信ボタンはここには実装しない
+ * (以前実装していたsendEmergencyPacket/loraEmergencySend.jsによる送信トリガーは
+ * この決定事項により削除した)。
  *
  * Field ReportとHeadquarters Dashboardは別デバイス(現場のスマホ / 本部のPC)で
  * 開かれる前提のため、この端末のオフライン報告キューをDashboard側へ引き継ぐ
@@ -27,7 +34,7 @@ export default function FieldReportPage() {
   const { pendingReportCount, addReportToPendingQueue, sendPendingReports } = useOfflineReportQueue();
 
   // 通信が復活したら、この端末の保留中の報告を再送する
-  const [networkMode, setNetworkMode] = useNetworkMode(() => {
+  const [networkMode, offlinePhase] = useNetworkMode(() => {
     sendPendingReports();
   });
 
@@ -51,7 +58,7 @@ export default function FieldReportPage() {
       urgency,
       memo,
       observed_at: new Date().toISOString(),
-      source: networkMode === "offline" || networkMode === "emergency" ? "offline" : "web",
+      source: networkMode === "offline" ? "offline" : "web",
     };
 
     if (isOnline) {
@@ -61,9 +68,12 @@ export default function FieldReportPage() {
       } catch (error) {
         addReportToPendingQueue(payload);
       }
-    } else {
-      addReportToPendingQueue(payload);
+      return;
     }
+
+    // オフライン中は常に未送信キューへ保存し、通信復旧後に通常APIで再送する。
+    // 決定事項29: 実際のLoRa送信はT-Beam専用ページの担当のため、ここでは行わない。
+    addReportToPendingQueue(payload);
   }
 
   return (
@@ -80,7 +90,6 @@ export default function FieldReportPage() {
         <div className="topbar-right-group">
           <AuthStatus />
           <FieldReportNavButtons />
-          <NetworkModeSwitcher networkMode={networkMode} onChangeMode={setNetworkMode} />
         </div>
       </header>
 
@@ -88,6 +97,7 @@ export default function FieldReportPage() {
         <FieldReportForm
           shelters={shelters}
           networkMode={networkMode}
+          offlinePhase={offlinePhase}
           pendingReportCount={pendingReportCount}
           onSubmitReport={handleSubmitReport}
         />
