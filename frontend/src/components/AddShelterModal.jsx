@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { createShelter } from "../api.js";
-import { setCapacity } from "../utils/shelterCapacity.js";
 
 /**
  * 「避難所を追加」モーダル(決定事項9・13、Figma: 避難所追加・キャパシティ設定)。
  *
  * キャパシティは 床面積(㎡) ÷ 1.65㎡/人 が基本算出方法(決定事項9)。
- * バックエンドのShelterにはまだキャパシティ用のカラムが無いため
- * (申し送り事項を参照)、この端末のlocalStorageに保存する。
+ * 決定事項34-bにより、POST /api/sheltersのペイロードにcapacityを含めて
+ * バックエンドへ保存する(以前はこの端末のlocalStorageのみに保存しており、
+ * 本部PC間で共有されない問題があった)。
  */
 export default function AddShelterModal({ onCancel, onCreated }) {
   const [name, setName] = useState("");
@@ -25,10 +25,11 @@ export default function AddShelterModal({ onCancel, onCreated }) {
     setErrorMessage("");
     try {
       // バックエンドはidを指定すればそのIDで登録し、未指定ならサーバー側で自動採番する。
-      const created = await createShelter({ name: trimmedName, id: shelterId.trim() || undefined });
-      if (capacity.trim()) {
-        setCapacity(created.id, Number(capacity));
-      }
+      const created = await createShelter({
+        name: trimmedName,
+        id: shelterId.trim() || undefined,
+        capacity: capacity.trim() ? Number(capacity) : undefined,
+      });
       onCreated(created);
     } catch (error) {
       setErrorMessage("登録に失敗しました。時間をおいて再度お試しください。");

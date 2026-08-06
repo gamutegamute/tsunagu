@@ -5,6 +5,7 @@ export default function ReporterNameField({ reporterName, onChange }) {
       報告者名
       <input
         type="text"
+        className="field-input-large"
         placeholder="田中"
         value={reporterName}
         onChange={(event) => onChange(event.target.value)}
