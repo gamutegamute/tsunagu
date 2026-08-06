@@ -108,6 +108,54 @@ powershell -ExecutionPolicy Bypass -File .\tools\post_emergency_packet.ps1
 .\tools\post_emergency_packet.ps1 -Packet "v1|AIT001|21:04|170|18|WARNING|REQ_WATER"
 ```
 
+## ゲートウェイのAPIキー設定(lora_serial_gateway.py実行前に必要)
+
+`tools/lora_serial_gateway.py`は`POST /api/emergency-packets`への送信時に`X-Gateway-Key`ヘッダーでAPIキー認証を行います(Cognitoログインではなく固定APIキー方式)。実行前に`TSUNAGU_GATEWAY_API_KEY`環境変数の設定が必要です。
+
+### ローカル(Docker)の場合
+
+`docker-compose.yml`に既定値`GATEWAY_API_KEY: local-gateway-key`が設定されています。同じ値をPC側にも設定します。
+
+```powershell
+$env:TSUNAGU_GATEWAY_API_KEY="local-gateway-key"
+```
+
+### 本番(AWS)の場合
+
+本番のキーはTerraformが自動生成し、SSM Parameter Storeに保存されています。パラメータ名(パス)は`infra/terraform`ディレクトリで次を実行すると確認できます。
+
+```powershell
+terraform output -raw gateway_api_key_parameter
+```
+
+取得したパラメータ名を使って、値そのものを取得します。
+
+```powershell
+aws ssm get-parameter --name "<上で確認したパラメータ名>" --with-decryption --query "Parameter.Value" --output text
+```
+
+AWS CLIが使えない場合は、AWSコンソールの Systems Manager → Parameter Store から同じパラメータ名を検索し、「表示」で復号した値を確認することもできます。
+
+取得した値をPowerShellの環境変数に設定します。
+
+```powershell
+$env:TSUNAGU_GATEWAY_API_KEY="<取得した値>"
+```
+
+**注意: `$env:`で設定した環境変数は、そのPowerShellウィンドウ(セッション)限りです。** 別のターミナルウィンドウを新しく開いて`lora_serial_gateway.py`を実行する場合は、その都度この設定をやり直す必要があります。値は画面共有やログに表示しないよう注意してください。
+
+### トラブルシューティング: エラーが出たらまずここを疑う
+
+`TSUNAGU_GATEWAY_API_KEY`が未設定のまま実行すると、通信を試みる前に次のエラーで**即終了(SystemExit)**します。
+
+```text
+TSUNAGU_GATEWAY_API_KEY is required
+```
+
+このエラーが出た場合は、今使っているPowerShellウィンドウでこの環境変数を設定できているか(別ウィンドウで設定して満足していないか)をまず確認してください。
+
+スクリプト自体は起動したものの、送信時に`401`が返る場合は、環境変数に設定した値がSSM Parameter Storeに保存されている実際の値と一致していない可能性が高いです(コピペミス、古い値の使い回し、ローカル用の`local-gateway-key`のまま本番URLへ送っている、など)。SSMの値と手元の環境変数を突き合わせて確認してください。
+
 ## T-Beam 到着後の流れ
 
 1. 付属アンテナを接続してからT-Beamへ給電する。
