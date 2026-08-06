@@ -6,6 +6,7 @@ export default function PeopleAndWaterFields({ peopleCount, waterStock, onPeople
         人数
         <input
           type="number"
+          className="field-input-large"
           min="0"
           value={peopleCount}
           onChange={(event) => onPeopleCountChange(event.target.value)}
@@ -16,6 +17,7 @@ export default function PeopleAndWaterFields({ peopleCount, waterStock, onPeople
         水
         <input
           type="number"
+          className="field-input-large"
           min="0"
           value={waterStock}
           onChange={(event) => onWaterStockChange(event.target.value)}

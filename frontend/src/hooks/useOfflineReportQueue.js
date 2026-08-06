@@ -1,12 +1,8 @@
 import { useState } from "react";
 import { createObservation } from "../api.js";
-import { loadJson } from "../utils/localJson.js";
 import { STORAGE_KEYS } from "../utils/storageKeys.js";
 import { addSentReportToHistory } from "../utils/sentReportHistory.js";
-
-function readPendingReportsFromStorage() {
-  return loadJson(STORAGE_KEYS.pendingReports, []);
-}
+import { getPendingReports } from "../utils/pendingReports.js";
 
 function savePendingReportsToStorage(reports) {
   localStorage.setItem(STORAGE_KEYS.pendingReports, JSON.stringify(reports));
@@ -21,18 +17,18 @@ function savePendingReportsToStorage(reports) {
  * 3. 再送信に成功した分だけキューから取り除き、失敗した分はキューに残す
  */
 export function useOfflineReportQueue() {
-  const [pendingReportCount, setPendingReportCount] = useState(() => readPendingReportsFromStorage().length);
+  const [pendingReportCount, setPendingReportCount] = useState(() => getPendingReports().length);
 
   /** 送信に失敗した報告をキューの末尾に追加する */
   function addReportToPendingQueue(report) {
-    const queue = [...readPendingReportsFromStorage(), report];
+    const queue = [...getPendingReports(), report];
     savePendingReportsToStorage(queue);
     setPendingReportCount(queue.length);
   }
 
   /** キューに溜まっている報告を1件ずつ送信し、失敗した分だけキューに残す */
   async function sendPendingReports() {
-    const queue = readPendingReportsFromStorage();
+    const queue = getPendingReports();
     const reportsStillPending = [];
 
     for (const report of queue) {
