@@ -30,6 +30,7 @@ class ShelterCreate(BaseModel):
     id: str | None = Field(default=None, min_length=1, max_length=50)
     name: str = Field(min_length=1, max_length=120)
     location: str = Field(default="", max_length=240)
+    capacity: int | None = Field(default=None, ge=0)
 
 
 class Shelter(BaseModel):
@@ -37,6 +38,7 @@ class Shelter(BaseModel):
     name: str
     location: str
     created_at: datetime
+    capacity: int | None = None
 
 
 class ObservationCreate(BaseModel):
@@ -86,6 +88,51 @@ class ShelterStatus(BaseModel):
     latest_observation: Observation | None
     status: str
     request_code: str | None
+
+
+class IncidentState(BaseModel):
+    confirm_status: Literal["UNCONFIRMED", "CONFIRMED"] = "UNCONFIRMED"
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+    confirm_memo: str | None = None
+    resolution_request_memo: str | None = None
+    resolution_request_staff_name: str | None = None
+    resolution_request_active_shelter_id: str | None = None
+    resolution_request_at: datetime | None = None
+    resolution_memo: str | None = None
+    resolution_staff_name: str | None = None
+    resolution_approver_name: str | None = None
+    resolution_approved_at: datetime | None = None
+
+
+class Incident(BaseModel):
+    id: str
+    shelter: Shelter
+    urgency: str
+    memo: str
+    observed_at: datetime
+    state: IncidentState
+
+
+class IncidentConfirmRequest(BaseModel):
+    approver_name: str = Field(min_length=1, max_length=120)
+    memo: str = Field(default="", max_length=1000)
+
+
+class IncidentResolveRequest(BaseModel):
+    approver_name: str = Field(min_length=1, max_length=120)
+    staff_name: str = Field(min_length=1, max_length=120)
+    memo: str = Field(default="", max_length=1000)
+
+
+class IncidentResolutionRequestCreate(BaseModel):
+    staff_name: str = Field(min_length=1, max_length=120)
+    memo: str = Field(default="", max_length=1000)
+    active_shelter_id: str | None = Field(default=None, max_length=50)
+
+
+class IncidentResolutionApproveRequest(BaseModel):
+    approver_name: str = Field(min_length=1, max_length=120)
 
 
 class EmergencyPacket(BaseModel):

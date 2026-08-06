@@ -181,6 +181,46 @@ def test_create_shelter_with_custom_id():
     assert duplicate.json()["detail"]["error"] == "Shelter already exists"
 
 
+def test_create_shelter_persists_capacity():
+    shelter_id = f"AIT-TEST-{uuid4().hex[:8].upper()}"
+    payload = {"id": shelter_id, "name": "Capacity Shelter", "location": "Gym", "capacity": 300}
+
+    response = client.post("/api/shelters", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["capacity"] == 300
+
+
+def test_create_shelter_without_capacity_defaults_to_null():
+    shelter_id = f"AIT-TEST-{uuid4().hex[:8].upper()}"
+    payload = {"id": shelter_id, "name": "No Capacity Shelter"}
+
+    response = client.post("/api/shelters", json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["capacity"] is None
+
+
+def test_list_shelters_includes_capacity():
+    shelter_id = f"AIT-TEST-{uuid4().hex[:8].upper()}"
+    client.post("/api/shelters", json={"id": shelter_id, "name": "Listed Shelter", "capacity": 50})
+
+    response = client.get("/api/shelters")
+
+    shelter = next(item for item in response.json() if item["id"] == shelter_id)
+    assert shelter["capacity"] == 50
+
+
+def test_dashboard_includes_shelter_capacity():
+    shelter_id = f"AIT-TEST-{uuid4().hex[:8].upper()}"
+    client.post("/api/shelters", json={"id": shelter_id, "name": "Dashboard Capacity Shelter", "capacity": 120})
+
+    response = client.get("/api/dashboard")
+
+    item = next(entry for entry in response.json() if entry["shelter"]["id"] == shelter_id)
+    assert item["shelter"]["capacity"] == 120
+
+
 def test_emergency_packet_requires_gateway_key():
     client.headers.pop("X-Gateway-Key")
     response = client.post(

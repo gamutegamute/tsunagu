@@ -30,6 +30,12 @@ from app.emergency_packet import parse_emergency_packet
 from app.models import (
     EmergencyPacket,
     EmergencyPacketCreate,
+    Incident,
+    IncidentConfirmRequest,
+    IncidentResolutionApproveRequest,
+    IncidentResolutionRequestCreate,
+    IncidentResolveRequest,
+    IncidentState,
     Observation,
     ObservationCreate,
     ObservationVerificationUpdate,
@@ -166,12 +172,12 @@ def create_shelter(payload: ShelterCreate, _: AuthUser = Depends(require_hq)) ->
     with get_conn() as conn:
         row = conn.execute(
             """
-            INSERT INTO shelters (id, name, location)
-            VALUES (%s, %s, %s)
+            INSERT INTO shelters (id, name, location, capacity)
+            VALUES (%s, %s, %s, %s)
             ON CONFLICT (id) DO NOTHING
             RETURNING *;
             """,
-            (shelter_id, payload.name, payload.location),
+            (shelter_id, payload.name, payload.location, payload.capacity),
         ).fetchone()
         if row is None:
             raise HTTPException(
@@ -304,6 +310,7 @@ def dashboard(_: AuthUser = Depends(require_hq)) -> list[dict]:
                     s.name,
                     s.location,
                     s.created_at AS shelter_created_at,
+                    s.capacity AS shelter_capacity,
                     o.id AS observation_id,
                     o.client_event_id,
                     o.people_count,
@@ -366,6 +373,7 @@ def dashboard(_: AuthUser = Depends(require_hq)) -> list[dict]:
                     "name": row["name"],
                     "location": row["location"],
                     "created_at": row["shelter_created_at"],
+                    "capacity": row["shelter_capacity"],
                 },
                 "latest_observation": observation,
                 "status": status,
@@ -373,6 +381,273 @@ def dashboard(_: AuthUser = Depends(require_hq)) -> list[dict]:
             }
         )
     return items
+
+
+def _incident_state_from_row(row: dict) -> dict:
+    return {
+        "confirm_status": row["confirm_status"] or "UNCONFIRMED",
+        "confirmed_by": row["confirmed_by"],
+        "confirmed_at": row["confirmed_at"],
+        "confirm_memo": row["confirm_memo"],
+        "resolution_request_memo": row["resolution_request_memo"],
+        "resolution_request_staff_name": row["resolution_request_staff_name"],
+        "resolution_request_active_shelter_id": row["resolution_request_active_shelter_id"],
+        "resolution_request_at": row["resolution_request_at"],
+        "resolution_memo": row["resolution_memo"],
+        "resolution_staff_name": row["resolution_staff_name"],
+        "resolution_approver_name": row["resolution_approver_name"],
+        "resolution_approved_at": row["resolution_approved_at"],
+    }
+
+
+@app.get("/api/incidents", response_model=list[Incident])
+def list_incidents(_: AuthUser = Depends(require_hq)) -> list[dict]:
+    """
+    決定事項34-a: メモが入っている全observationsを(避難所ごとの最新1件に絞らず)
+    observed_at降順で返す。GET /api/dashboardは「最新1件のみ」しか返さないため、
+    新しい報告が来た瞬間に古いIncidentが一覧から消えてしまう問題があった。
+    observationsは常にINSERTのみで過去分も保持されているため、ここでは絞り込まずに
+    全件返すことでこの問題を解消する。
+    """
+    with get_conn() as conn:
+        rows = list(
+            conn.execute(
+                """
+                SELECT
+                    o.id AS observation_id,
+                    o.urgency,
+                    o.water_stock,
+                    o.memo,
+                    o.observed_at,
+                    s.id AS shelter_id,
+                    s.name AS shelter_name,
+                    s.location AS shelter_location,
+                    s.created_at AS shelter_created_at,
+                    ist.confirm_status,
+                    ist.confirmed_by,
+                    ist.confirmed_at,
+                    ist.confirm_memo,
+                    ist.resolution_request_memo,
+                    ist.resolution_request_staff_name,
+                    ist.resolution_request_active_shelter_id,
+                    ist.resolution_request_at,
+                    ist.resolution_memo,
+                    ist.resolution_staff_name,
+                    ist.resolution_approver_name,
+                    ist.resolution_approved_at
+                FROM observations o
+                JOIN shelters s ON s.id = o.shelter_id
+                LEFT JOIN incident_states ist ON ist.observation_id = o.id
+                WHERE o.memo IS NOT NULL
+                    AND trim(o.memo) != ''
+                    AND o.source != 'emergency_packet'
+                ORDER BY o.observed_at DESC, o.created_at DESC;
+                """
+            )
+        )
+
+    incidents = []
+    for row in rows:
+        status = decide_status(observed_at=row["observed_at"], water_stock=row["water_stock"], urgency=row["urgency"])
+        incidents.append(
+            {
+                "id": row["observation_id"],
+                "shelter": {
+                    "id": row["shelter_id"],
+                    "name": row["shelter_name"],
+                    "location": row["shelter_location"],
+                    "created_at": row["shelter_created_at"],
+                },
+                "urgency": status,
+                "memo": row["memo"],
+                "observed_at": row["observed_at"],
+                "state": _incident_state_from_row(row),
+            }
+        )
+    return incidents
+
+
+def _fetch_incident(conn, observation_id: str) -> dict | None:
+    row = conn.execute(
+        """
+        SELECT
+            o.id AS observation_id,
+            o.urgency,
+            o.water_stock,
+            o.memo,
+            o.observed_at,
+            s.id AS shelter_id,
+            s.name AS shelter_name,
+            s.location AS shelter_location,
+            s.created_at AS shelter_created_at,
+            ist.confirm_status,
+            ist.confirmed_by,
+            ist.confirmed_at,
+            ist.confirm_memo,
+            ist.resolution_request_memo,
+            ist.resolution_request_staff_name,
+            ist.resolution_request_active_shelter_id,
+            ist.resolution_request_at,
+            ist.resolution_memo,
+            ist.resolution_staff_name,
+            ist.resolution_approver_name,
+            ist.resolution_approved_at
+        FROM observations o
+        JOIN shelters s ON s.id = o.shelter_id
+        LEFT JOIN incident_states ist ON ist.observation_id = o.id
+        WHERE o.id = %s;
+        """,
+        (observation_id,),
+    ).fetchone()
+    if row is None:
+        return None
+
+    status = decide_status(observed_at=row["observed_at"], water_stock=row["water_stock"], urgency=row["urgency"])
+    return {
+        "id": row["observation_id"],
+        "shelter": {
+            "id": row["shelter_id"],
+            "name": row["shelter_name"],
+            "location": row["shelter_location"],
+            "created_at": row["shelter_created_at"],
+        },
+        "urgency": status,
+        "memo": row["memo"],
+        "observed_at": row["observed_at"],
+        "state": _incident_state_from_row(row),
+    }
+
+
+def _require_observation_exists(conn, observation_id: str) -> None:
+    row = conn.execute("SELECT id FROM observations WHERE id = %s;", (observation_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Observation not found")
+
+
+@app.post(
+    "/api/incidents/{observation_id}/confirm",
+    response_model=Incident,
+    dependencies=[Depends(require_csrf)],
+)
+def confirm_incident(
+    observation_id: str,
+    payload: IncidentConfirmRequest,
+    _: AuthUser = Depends(require_hq),
+) -> dict:
+    """決定事項14: 「確認済みにする」は本部(PC)専用の操作。"""
+    with get_conn() as conn:
+        _require_observation_exists(conn, observation_id)
+        conn.execute(
+            """
+            INSERT INTO incident_states (observation_id, confirm_status, confirmed_by, confirmed_at, confirm_memo)
+            VALUES (%s, 'CONFIRMED', %s, now(), %s)
+            ON CONFLICT (observation_id) DO UPDATE SET
+                confirm_status = EXCLUDED.confirm_status,
+                confirmed_by = EXCLUDED.confirmed_by,
+                confirmed_at = EXCLUDED.confirmed_at,
+                confirm_memo = EXCLUDED.confirm_memo;
+            """,
+            (observation_id, payload.approver_name, payload.memo),
+        )
+        conn.commit()
+        return _fetch_incident(conn, observation_id)
+
+
+@app.post(
+    "/api/incidents/{observation_id}/resolve",
+    response_model=Incident,
+    dependencies=[Depends(require_csrf)],
+)
+def resolve_incident(
+    observation_id: str,
+    payload: IncidentResolveRequest,
+    _: AuthUser = Depends(require_hq),
+) -> dict:
+    """
+    決定事項14: 申請を経由せず本部(PC)が直接「対応済みにする」場合。
+    承認者本人がその場で対応内容を記録するため、承認待ちを経由せず即確定する。
+    """
+    with get_conn() as conn:
+        _require_observation_exists(conn, observation_id)
+        conn.execute(
+            """
+            INSERT INTO incident_states (
+                observation_id, resolution_memo, resolution_staff_name,
+                resolution_approver_name, resolution_approved_at
+            )
+            VALUES (%s, %s, %s, %s, now())
+            ON CONFLICT (observation_id) DO UPDATE SET
+                resolution_memo = EXCLUDED.resolution_memo,
+                resolution_staff_name = EXCLUDED.resolution_staff_name,
+                resolution_approver_name = EXCLUDED.resolution_approver_name,
+                resolution_approved_at = EXCLUDED.resolution_approved_at;
+            """,
+            (observation_id, payload.memo, payload.staff_name, payload.approver_name),
+        )
+        conn.commit()
+        return _fetch_incident(conn, observation_id)
+
+
+@app.post("/api/incidents/{observation_id}/resolution-requests", response_model=Incident)
+def request_incident_resolution(
+    observation_id: str,
+    payload: IncidentResolutionRequestCreate,
+    _: AuthUser | None = Depends(get_optional_user),
+) -> dict:
+    """
+    決定事項7・12・14: モバイル(現場)からの「対応済みにする」申請。
+    ログイン不要(決定事項7)なため、認証は必須にしない。承認はPC専用(resolution-requests/approve)。
+    """
+    with get_conn() as conn:
+        _require_observation_exists(conn, observation_id)
+        conn.execute(
+            """
+            INSERT INTO incident_states (
+                observation_id, resolution_request_memo, resolution_request_staff_name,
+                resolution_request_active_shelter_id, resolution_request_at
+            )
+            VALUES (%s, %s, %s, %s, now())
+            ON CONFLICT (observation_id) DO UPDATE SET
+                resolution_request_memo = EXCLUDED.resolution_request_memo,
+                resolution_request_staff_name = EXCLUDED.resolution_request_staff_name,
+                resolution_request_active_shelter_id = EXCLUDED.resolution_request_active_shelter_id,
+                resolution_request_at = EXCLUDED.resolution_request_at;
+            """,
+            (observation_id, payload.memo, payload.staff_name, payload.active_shelter_id),
+        )
+        conn.commit()
+        return _fetch_incident(conn, observation_id)
+
+
+@app.post(
+    "/api/incidents/{observation_id}/resolution-requests/approve",
+    response_model=Incident,
+    dependencies=[Depends(require_csrf)],
+)
+def approve_incident_resolution_request(
+    observation_id: str,
+    payload: IncidentResolutionApproveRequest,
+    _: AuthUser = Depends(require_hq),
+) -> dict:
+    """決定事項2・7・12: モバイルからの申請を、本部(PC)が承認して確定する。"""
+    with get_conn() as conn:
+        _require_observation_exists(conn, observation_id)
+        row = conn.execute(
+            """
+            UPDATE incident_states
+            SET resolution_memo = resolution_request_memo,
+                resolution_staff_name = resolution_request_staff_name,
+                resolution_approver_name = %s,
+                resolution_approved_at = now()
+            WHERE observation_id = %s AND resolution_request_at IS NOT NULL
+            RETURNING observation_id;
+            """,
+            (payload.approver_name, observation_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=400, detail="No pending resolution request for this incident")
+        conn.commit()
+        return _fetch_incident(conn, observation_id)
 
 
 def _packet_observed_at(packet_time: str, received_at: datetime) -> datetime:
