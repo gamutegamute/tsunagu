@@ -3,7 +3,12 @@ export default function ShelterSelectField({ shelters, selectedShelterId, onChan
   return (
     <label>
       避難所
-      <select value={selectedShelterId} onChange={(event) => onChange(event.target.value)} required>
+      <select
+        className="field-input-large"
+        value={selectedShelterId}
+        onChange={(event) => onChange(event.target.value)}
+        required
+      >
         {shelters.map((shelter) => (
           <option key={shelter.id} value={shelter.id}>
             {shelter.id} - {shelter.name}
