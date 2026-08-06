@@ -14,19 +14,19 @@ export default function PcIncidentCard({ incident, onChanged }) {
   const approverName = getApproverName();
   const { assigneeLabel, statusNote, resolutionInfo } = describeIncidentDisplay(incident);
 
-  function handleApprove() {
-    approveResolutionRequest(incident.id, { approverName });
+  async function handleApprove() {
+    await approveResolutionRequest(incident.id, { approverName });
     onChanged();
   }
 
-  function handleConfirmSubmit(memo) {
-    confirmIncident(incident.id, { approverName, memo });
+  async function handleConfirmSubmit(memo) {
+    await confirmIncident(incident.id, { approverName, memo });
     setActiveModal(null);
     onChanged();
   }
 
-  function handleResolveSubmit(memo) {
-    resolveIncidentDirectly(incident.id, { approverName, memo, staffName: approverName });
+  async function handleResolveSubmit(memo) {
+    await resolveIncidentDirectly(incident.id, { approverName, memo, staffName: approverName });
     setActiveModal(null);
     onChanged();
   }

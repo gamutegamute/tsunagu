@@ -23,7 +23,7 @@ const TABS = [
 export default function IncidentPage() {
   const navigate = useNavigate();
   const shelters = useShelterList();
-  const { incidents, refreshLocalState } = useIncidents();
+  const { incidents, refresh } = useIncidents();
   const [activeTabId, setActiveTabId] = useState("unresolved");
   const [requestTargetIncident, setRequestTargetIncident] = useState(null);
 
@@ -31,10 +31,10 @@ export default function IncidentPage() {
     activeTabId === "resolved" ? isResolved(incident) : !isResolved(incident),
   );
 
-  function handleRequestSubmit(formValues) {
-    requestResolution(requestTargetIncident.id, formValues);
+  async function handleRequestSubmit(formValues) {
+    await requestResolution(requestTargetIncident.id, formValues);
     setRequestTargetIncident(null);
-    refreshLocalState();
+    refresh();
   }
 
   return (

@@ -20,7 +20,7 @@ export default function ShelterDetailPage() {
   const navigate = useNavigate();
   const shelters = useShelterList();
   const { dashboardItems, emergencyPackets, reloadDashboard } = useDashboardData();
-  const { incidents, refresh: refreshIncidents, refreshLocalState } = useIncidents();
+  const { incidents, refresh: refreshIncidents } = useIncidents();
 
   useEffect(() => {
     reloadDashboard();
@@ -73,10 +73,7 @@ export default function ShelterDetailPage() {
               <PcIncidentCard
                 key={incident.id}
                 incident={incident}
-                onChanged={() => {
-                  refreshLocalState();
-                  refreshIncidents();
-                }}
+                onChanged={refreshIncidents}
               />
             ))}
           </div>
