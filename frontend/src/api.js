@@ -59,3 +59,25 @@ export const updateObservationVerification = (observationId, status) => api(
   `/api/observations/${encodeURIComponent(observationId)}/verification`,
   { method: "PATCH", body: JSON.stringify({ status }) },
 );
+
+export const fetchIncidents = () => api("/api/incidents");
+
+export const confirmIncident = (observationId, { approverName, memo }) => api(
+  `/api/incidents/${encodeURIComponent(observationId)}/confirm`,
+  { method: "POST", body: JSON.stringify({ approver_name: approverName, memo }) },
+);
+
+export const resolveIncident = (observationId, { approverName, staffName, memo }) => api(
+  `/api/incidents/${encodeURIComponent(observationId)}/resolve`,
+  { method: "POST", body: JSON.stringify({ approver_name: approverName, staff_name: staffName, memo }) },
+);
+
+export const requestIncidentResolution = (observationId, { staffName, memo, activeShelterId }) => api(
+  `/api/incidents/${encodeURIComponent(observationId)}/resolution-requests`,
+  { method: "POST", body: JSON.stringify({ staff_name: staffName, memo, active_shelter_id: activeShelterId }) },
+);
+
+export const approveIncidentResolutionRequest = (observationId, { approverName }) => api(
+  `/api/incidents/${encodeURIComponent(observationId)}/resolution-requests/approve`,
+  { method: "POST", body: JSON.stringify({ approver_name: approverName }) },
+);

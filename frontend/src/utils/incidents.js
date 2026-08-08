@@ -1,33 +1,45 @@
-import { getIncidentState } from "./incidentStore.js";
-
 /**
- * 避難所ステータス一覧(GET /api/dashboard相当)から「インシデント」を抽出する。
+ * バックエンドのGET /api/incidents(決定事項34-a/34-b)が返す1件を、画面側で
+ * 扱いやすいキャメルケースの形に正規化する。
  *
- * 決定事項1: Incidentは現場報告のメモ欄をインシデント欄として扱う。
- * バックエンドは「避難所ごとの最新の報告」しか返さない(履歴APIが無い)ため、
- * 各避難所の最新報告にメモが入っていれば、それを1件のIncidentとみなす
- * (新しい報告が来るとメモが空でも古いIncidentは一覧から消える暫定挙動。
- *  詳細は申し送り事項を参照)。
- *
- * Emergency Packet(source === "emergency_packet")は現場の状態報告であり、
- * 現場が気づいた問題(Incident)ではないため抽出対象から除外する。
+ * 決定事項1: Incidentは現場報告のメモ欄をインシデント欄として扱う。以前は
+ * GET /api/dashboard(避難所ごとの最新1件のみ)からメモ入りの報告を抽出し、
+ * 確認/対応状態はこの端末のlocalStorage(incidentStore.js)から合成していたが、
+ * この方式では新しい報告が来た瞬間に古いIncidentが一覧から消える問題があった
+ * (決定事項34-a)。GET /api/incidentsはメモ入りの全observationsをサーバー側で
+ * 絞り込んで返し、状態(incident_states)もサーバーで一元管理されるため、
+ * この問題と複数PC間での状態非共有(決定事項34-b)の両方を解消する。
+ * ここでは単にフィールド名をキャメルケースへ揃えるだけになっている。
  */
-export function deriveIncidentsFromDashboard(shelterStatusList) {
-  return shelterStatusList
-    .filter((item) => item.latest_observation && item.latest_observation.memo && item.latest_observation.memo.trim())
-    .filter((item) => item.latest_observation.source !== "emergency_packet")
-    .map((item) => {
-      const observation = item.latest_observation;
-      const localState = getIncidentState(observation.id);
-      return {
-        id: observation.id,
-        shelter: item.shelter,
-        urgency: item.status,
-        memo: observation.memo,
-        observedAt: observation.observed_at,
-        ...localState,
-      };
-    });
+export function normalizeIncident(incident) {
+  const state = incident.state;
+  return {
+    id: incident.id,
+    shelter: incident.shelter,
+    urgency: incident.urgency,
+    memo: incident.memo,
+    observedAt: incident.observed_at,
+    confirmStatus: state.confirm_status,
+    confirmedBy: state.confirmed_by,
+    confirmMemo: state.confirm_memo,
+    resolutionRequest: state.resolution_request_at
+      ? {
+          memo: state.resolution_request_memo,
+          staffName: state.resolution_request_staff_name,
+          targetShelterId: incident.shelter.id,
+          activeShelterId: state.resolution_request_active_shelter_id,
+          requestedAt: state.resolution_request_at,
+        }
+      : null,
+    resolution: state.resolution_approved_at
+      ? {
+          memo: state.resolution_memo,
+          staffName: state.resolution_staff_name,
+          approverName: state.resolution_approver_name,
+          approvedAt: state.resolution_approved_at,
+        }
+      : null,
+  };
 }
 
 /** 対応済み(承認確定)かどうか。 */
