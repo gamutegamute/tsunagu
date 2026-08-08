@@ -1,39 +1,33 @@
-import { useEffect, useMemo, useState } from "react";
-import { useDashboardData } from "./useDashboardData.js";
-import { deriveIncidentsFromDashboard } from "../utils/incidents.js";
+import { useCallback, useEffect, useState } from "react";
+import { fetchIncidents } from "../api.js";
+import { normalizeIncident } from "../utils/incidents.js";
 
 /**
  * 全避難所のインシデント一覧を取得するフック(決定事項2: 閲覧は全エリア可)。
  *
- * サーバーからは避難所ごとの最新状況(dashboardItems)を取得し、その中から
- * メモ入りの報告をIncidentとして抽出する。承認状態などのローカル状態
- * (incidentStore)はサーバーには存在しないため、refresh() を呼ぶたびに
- * localStorageから読み直して合成し直す。
+ * 決定事項34-a/34-bにより、GET /api/incidentsから直接取得する形に変更した。
+ * 以前はGET /api/dashboard(避難所ごとの最新1件のみ)からメモ入りの報告を
+ * 抽出し、確認/対応状態はこの端末のlocalStorageから合成していたが、この方式
+ * では新しい報告が来た瞬間に古いIncidentが一覧から消える問題があった
+ * (決定事項34-a)。GET /api/incidentsは絞り込まず全件返し、状態も
+ * サーバー側(incident_states)で一元管理されるため、この問題と複数PC間での
+ * 状態非共有(決定事項34-b)の両方を解消する。
  */
 export function useIncidents() {
-  const { dashboardItems, reloadDashboard } = useDashboardData();
-  const [refreshTick, setRefreshTick] = useState(0);
+  const [incidents, setIncidents] = useState([]);
 
-  useEffect(() => {
-    reloadDashboard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const refresh = useCallback(async () => {
+    try {
+      const rawIncidents = await fetchIncidents();
+      setIncidents(rawIncidents.map(normalizeIncident));
+    } catch (error) {
+      console.error(error);
+    }
   }, []);
 
-  const incidents = useMemo(
-    () => deriveIncidentsFromDashboard(dashboardItems),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dashboardItems, refreshTick],
-  );
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
-  async function refresh() {
-    await reloadDashboard();
-    setRefreshTick((tick) => tick + 1);
-  }
-
-  /** サーバーへの再取得はせず、ローカル状態(承認結果など)だけを反映し直す。 */
-  function refreshLocalState() {
-    setRefreshTick((tick) => tick + 1);
-  }
-
-  return { incidents, refresh, refreshLocalState };
+  return { incidents, refresh };
 }

@@ -84,7 +84,7 @@ export default function Dashboard({ shelterStatusList, onSyncButtonClick }) {
           </div>
         </>
       ) : (
-        <IncidentManagementTab shelterStatusList={shelterStatusList} />
+        <IncidentManagementTab />
       )}
 
       {isAddShelterModalOpen && (
