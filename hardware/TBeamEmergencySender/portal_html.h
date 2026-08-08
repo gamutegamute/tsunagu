@@ -123,13 +123,12 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
 
 <main>
   <div class="field">
-    <label>避難所コード</label>
-    <!--
-      T-BeamがWebサーバー配信前に {{SHELTER_CODE}} を実際の値へ置き換える。
-      (決定事項30・32: 避難所コードはフォームからは送信しない。Arduino側の
-      device_config.h の固定値を使用する)
-    -->
-    <div class="shelter-code" id="shelterCodeDisplay">{{SHELTER_CODE}}</div>
+    <label for="shelterCode">避難所コード <span aria-hidden="true">*</span></label>
+    <select id="shelterCode" required>
+      <option value="AIT001" selected>AIT001 (Shelter A / 体育館)</option>
+      <option value="AIT002">AIT002 (Shelter B / 講義棟)</option>
+      <option value="AIT003">AIT003 (Shelter C / 学生センター)</option>
+    </select>
   </div>
 
   <div class="field">
@@ -180,9 +179,7 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
 </main>
 
 <script>
-  // 決定事項30・32: 避難所コードはT-Beamが配信時に{{SHELTER_CODE}}を
-  // 実際の値に置き換える。JS側はそのDOM表示をそのまま参照する。
-  const SHELTER_CODE = document.getElementById("shelterCodeDisplay").textContent.trim();
+
 
   // 決定事項32: インフラ側の実装(hardware/TBeamEmergencySender)に合わせた契約
   const SUBMIT_ENDPOINT = "/send";
@@ -192,11 +189,17 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
   // 例: http://192.168.4.1/?people=170&water=18&status=WARNING&request=REQ_WATER
   function applyPrefillFromQuery() {
     const params = new URLSearchParams(window.location.search);
+    const shelter = params.get("shelter") || params.get("shelter_code");
     const people = params.get("people");
     const water = params.get("water");
     const status = params.get("status");
     const request = params.get("request");
 
+    if (shelter !== null) {
+      const select = document.getElementById("shelterCode");
+      const hasOption = Array.from(select.options).some(function (opt) { return opt.value === shelter; });
+      if (hasOption) select.value = shelter;
+    }
     if (people !== null) document.getElementById("people").value = people;
     if (water !== null) document.getElementById("water").value = water;
     if (status !== null && ["NORMAL", "WARNING", "ALERT", "CRITICAL"].includes(status)) {
@@ -249,6 +252,7 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
   }
 
   function buildPacket() {
+    const shelter = document.getElementById("shelterCode").value;
     const people = document.getElementById("people").value || "0";
     const water = document.getElementById("water").value || "0";
     const urgency = document.getElementById("urgency").value;
@@ -256,14 +260,14 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
     const time = nowHHMM();
     // v1|避難所コード|時刻|人数|水|緊急度|要請コード
     // (プレビュー表示専用。実際の送信前バリデーションはsubmitReport内で行う)
-    return ["v1", SHELTER_CODE, time, people, water, urgency, requestCode].join("|");
+    return ["v1", shelter, time, people, water, urgency, requestCode].join("|");
   }
 
   function updatePreview() {
     document.getElementById("packetPreview").textContent = buildPacket();
   }
 
-  ["people", "water", "urgency", "requestCode"].forEach(function (id) {
+  ["shelterCode", "people", "water", "urgency", "requestCode"].forEach(function (id) {
     document.getElementById(id).addEventListener("input", updatePreview);
     document.getElementById(id).addEventListener("change", updatePreview);
   });
@@ -288,9 +292,9 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
     btn.textContent = "送信中...";
 
     // 決定事項32: application/x-www-form-urlencoded、
-    // フィールド名は time / people_count / water_stock / status / request_code
-    // 避難所コードは送らない(Arduino側の固定値を使用)
+    // フィールド名は shelter_code / time / people_count / water_stock / status / request_code
     const formData = new URLSearchParams();
+    formData.set("shelter_code", document.getElementById("shelterCode").value);
     formData.set("time", nowHHMM());
     formData.set("people_count", String(validation.people));
     formData.set("water_stock", String(validation.water));

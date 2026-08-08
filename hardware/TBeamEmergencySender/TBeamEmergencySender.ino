@@ -129,7 +129,6 @@ void sendResultPage(int statusCode, const String &title, const String &message, 
 
 void showPortal() {
   String body = FPSTR(PORTAL_HTML);
-  body.replace("{{SHELTER_CODE}}", escapeHtml(TSUNAGU_SHELTER_CODE));
   webServer.sendHeader("Cache-Control", "no-store");
   webServer.send(200, "text/html; charset=utf-8", body);
 }
@@ -149,6 +148,7 @@ void handleSend() {
     return;
   }
 
+  const String shelterCode = webServer.arg("shelter_code");
   const String packetTime = webServer.arg("time");
   const String peopleCountText = webServer.arg("people_count");
   const String waterStockText = webServer.arg("water_stock");
@@ -157,19 +157,20 @@ void handleSend() {
   int peopleCount = 0;
   int waterStock = 0;
 
-  if (!isValidTime(packetTime) || !parseReportValue(peopleCountText, peopleCount) ||
+  if (!isValidShelterCode(shelterCode.c_str()) || !isValidTime(packetTime) ||
+      !parseReportValue(peopleCountText, peopleCount) ||
       !parseReportValue(waterStockText, waterStock) ||
       !isAllowedValue(status, ALLOWED_STATUSES, sizeof(ALLOWED_STATUSES) / sizeof(ALLOWED_STATUSES[0])) ||
       !isAllowedValue(requestCode, ALLOWED_REQUEST_CODES,
                       sizeof(ALLOWED_REQUEST_CODES) / sizeof(ALLOWED_REQUEST_CODES[0]))) {
-    sendResultPage(400, "入力エラー", "時刻・人数・水在庫・緊急度・要請コードを確認してください。", false);
+    sendResultPage(400, "入力エラー", "避難所コード・時刻・人数・水在庫・緊急度・要請コードを確認してください。", false);
     return;
   }
 
   String packet;
   packet.reserve(96);
   packet += F("v1|");
-  packet += TSUNAGU_SHELTER_CODE;
+  packet += shelterCode;
   packet += '|';
   packet += packetTime;
   packet += '|';
