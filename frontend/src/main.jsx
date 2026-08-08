@@ -10,6 +10,7 @@ import HistoryPage from "./pages/HistoryPage.jsx";
 import ShelterDetailPage from "./pages/ShelterDetailPage.jsx";
 import TimelinePage from "./pages/TimelinePage.jsx";
 import DevPreview from "./DevPreview.jsx";
+import DemoControlPage from "./pages/DemoControlPage.jsx";
 import { AuthProvider } from "./auth/AuthContext.jsx";
 import "./styles.css";
 
@@ -52,6 +53,7 @@ createRoot(document.getElementById("root")).render(
             }
           />
           <Route path="/dev-preview" element={<RequireApprover><DevPreview /></RequireApprover>} />
+          <Route path="/demo-control" element={<RequireApprover><DemoControlPage /></RequireApprover>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

@@ -9,7 +9,7 @@ import { useDashboardData } from "../hooks/useDashboardData.js";
 import { useIncidents } from "../hooks/useIncidents.js";
 import { mergeEmergencyDataIntoDashboard } from "../utils/emergencyPacket.js";
 import { getHistory } from "../utils/shelterObservationHistory.js";
-import { getCapacity } from "../utils/shelterCapacity.js";
+import { getShelterCapacity } from "../utils/shelterCapacity.js";
 
 /**
  * PC向け避難所詳細画面(/dashboard/shelters/:shelterId、決定事項16)。
@@ -31,7 +31,6 @@ export default function ShelterDetailPage() {
   const shelterStatus = shelterStatusList.find((item) => item.shelter.id === shelterId);
   const shelterIncidents = incidents.filter((incident) => incident.shelter.id === shelterId);
   const history = getHistory(shelterId);
-  const capacity = getCapacity(shelterId);
 
   if (!shelterStatus) {
     return (
@@ -43,6 +42,8 @@ export default function ShelterDetailPage() {
       </main>
     );
   }
+
+  const capacity = getShelterCapacity(shelterStatus.shelter);
 
   return (
     <>

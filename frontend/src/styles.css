@@ -166,6 +166,12 @@ textarea {
   resize: vertical;
 }
 
+/* 決定事項33-d: 人数・水・避難所選択・報告者名の入力欄(高齢者アクセシビリティ配慮で文字を大きくする) */
+.field-input-large {
+  font-size: 18px;
+  padding: 12px 14px;
+}
+
 button[type="submit"],
 #syncButton {
   border: 0;
@@ -475,12 +481,17 @@ legend {
   color: var(--ink);
   font-size: 16px;
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-badge {
   background: var(--green);
   border-radius: 999px;
   color: white;
+  flex-shrink: 0;
   font-size: 11px;
   font-weight: 700;
   padding: 4px 10px;
@@ -628,6 +639,7 @@ legend {
   border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--ink);
+  flex-shrink: 0;
   font-size: 11px;
   font-weight: 500;
   padding: 3px 8px;
@@ -701,6 +713,52 @@ legend {
 
   .summary {
     grid-template-columns: 1fr;
+  }
+
+  /* 決定事項33-c/d: Headquarters Dashboardのスマホ幅対応。
+     見出し行・タブ・バッジ類がはみ出さないよう折り返しを許可する。 */
+  .section-title,
+  .dashboard-tab-bar,
+  .incident-status-tab-row,
+  .verification-row,
+  .shelter-card-footer {
+    flex-wrap: wrap;
+  }
+
+  .shelter-detail-incident-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* 決定事項33-2: Timeline画面(/dashboard/timeline)をスマホ幅ではテーブル状の
+     横並びではなく、1件ずつのカード形式(縦積み)で表示する。PC幅は従来通り。 */
+  .timeline-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .timeline-row-shelter {
+    order: 1;
+    font-size: 15px;
+  }
+
+  .timeline-row .status-badge {
+    order: 2;
+    justify-self: start;
+  }
+
+  .timeline-row-time {
+    order: 3;
+  }
+
+  .timeline-row-reporter {
+    order: 4;
+  }
+
+  .timeline-row-summary {
+    order: 5;
+    margin-top: 4px;
+    overflow: visible;
+    white-space: normal;
   }
 }
 
@@ -883,6 +941,7 @@ legend {
 .incident-card-title-row {
   align-items: center;
   display: flex;
+  gap: 8px;
   justify-content: space-between;
 }
 
@@ -891,6 +950,10 @@ legend {
   font-size: 14px;
   font-weight: 700;
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .incident-card-memo {
@@ -1150,36 +1213,107 @@ legend {
 }
 
 /* ---------------------------------------------------------------------
-   送信履歴(モバイル)
+   送信履歴(モバイル、決定事項33-a: 他画面と統一感のあるカードデザイン)
 --------------------------------------------------------------------- */
+
+.history-panel .section-title {
+  margin-bottom: 14px;
+}
+
+.history-count-badge {
+  background: var(--base);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+}
 
 .history-list {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .history-item {
-  align-items: center;
   background: white;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   display: flex;
-  gap: 10px;
-  padding: 12px 14px;
+  overflow: hidden;
 }
 
-.history-item-time {
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 700;
-  white-space: nowrap;
+.history-item-accent {
+  background: var(--green);
+  flex-shrink: 0;
+  width: 6px;
+}
+
+.history-item.warning .history-item-accent {
+  background: var(--amber);
+}
+
+.history-item.alert .history-item-accent,
+.history-item.unknown .history-item-accent {
+  background: var(--red);
+}
+
+.history-item.critical .history-item-accent {
+  background: var(--critical);
+}
+
+.history-item-body {
+  display: grid;
+  flex: 1;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.history-item-title-row {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
 }
 
 .history-item-shelter {
   color: var(--ink);
-  flex: 1;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
+}
+
+.history-item-time {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.history-item-meta-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.history-sync-chip {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 4px;
+  padding: 3px 8px;
+}
+
+.history-sync-chip.sent {
+  background: #e5f4ee;
+  color: var(--green);
+}
+
+.history-sync-chip.unsynced {
+  background: #fff7d6;
+  color: #765600;
 }
 
 .topbar-right-group {
@@ -1564,4 +1698,119 @@ legend {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------
+   Demo control (direct URL only)
+--------------------------------------------------------------------- */
+
+.demo-control-page {
+  margin: 0 auto;
+  max-width: 760px;
+  padding: 32px 20px 64px;
+}
+
+.demo-control-heading {
+  align-items: center;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.demo-control-heading h2,
+.demo-reset-form h3 {
+  margin: 0;
+}
+
+.demo-control-heading .eyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.demo-control-heading .outline-button {
+  flex: none;
+}
+
+.demo-reset-form {
+  display: grid;
+  gap: 20px;
+}
+
+.demo-warning-band {
+  background: #fff1f1;
+  border-left: 4px solid var(--red);
+  padding: 16px;
+}
+
+.demo-warning-band p {
+  margin: 6px 0 0;
+}
+
+.demo-counts {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 12px 0 0;
+}
+
+.demo-counts div {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.demo-counts dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.demo-counts dd {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 4px 0 0;
+}
+
+.demo-acknowledgement {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.demo-acknowledgement input {
+  height: 18px;
+  width: 18px;
+}
+
+.danger-button {
+  background: var(--red);
+  border: 0;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 46px;
+}
+
+.danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.demo-control-message,
+.demo-control-unavailable {
+  margin-top: 20px;
+}
+
+@media (max-width: 600px) {
+  .demo-control-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .demo-counts {
+    grid-template-columns: 1fr;
+  }
 }

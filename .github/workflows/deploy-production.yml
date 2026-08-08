@@ -62,6 +62,8 @@ jobs:
       TF_VAR_google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       TF_VAR_hq_emails: ${{ secrets.HQ_EMAILS_JSON }}
       TF_VAR_field_emails: ${{ secrets.FIELD_EMAILS_JSON }}
+      TF_VAR_demo_reset_enabled: ${{ vars.DEMO_RESET_ENABLED || 'false' }}
+      TF_VAR_demo_admin_emails: ${{ vars.DEMO_ADMIN_EMAILS_JSON || '[]' }}
       TF_VAR_image_tag: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v4

@@ -132,6 +132,13 @@ def require_hq(user: AuthUser = Depends(require_authenticated_user)) -> AuthUser
     return user
 
 
+def require_demo_admin(user: AuthUser = Depends(require_hq)) -> AuthUser:
+    settings = get_settings()
+    if not settings.demo_reset_enabled or user.email.lower() not in settings.demo_admin_emails:
+        raise HTTPException(status_code=404, detail="Not found")
+    return user
+
+
 def require_csrf(
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
     csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),

@@ -9,8 +9,8 @@ export default function FieldReportNavButtons() {
   const { user } = useAuth();
   return (
     <div className="field-report-nav-buttons">
-      <Link to="/history" className="icon-nav-button" aria-label="送信履歴">
-        🕘
+      <Link to="/history" className="icon-nav-button">
+        送信履歴
       </Link>
       {user?.role === "hq" && (
         <Link to="/incident" className="icon-nav-button" aria-label="インシデント">

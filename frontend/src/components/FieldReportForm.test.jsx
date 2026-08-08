@@ -72,4 +72,22 @@ describe("FieldReportForm", () => {
     expect(screen.queryByText(/オフライン/)).toBeNull();
     expect(screen.queryByText(/LoRa/)).toBeNull();
   });
+
+  it("決定事項33-d: 人数・水・避難所選択・報告者名の入力欄が文字拡大クラスを持つ(高齢者アクセシビリティ配慮)", () => {
+    render(
+      <FieldReportForm
+        shelters={shelters}
+        networkMode="normal"
+        offlinePhase="retrying"
+        pendingReportCount={0}
+        onSubmitReport={vi.fn()}
+      />,
+    );
+
+    const largeFields = document.querySelectorAll(".field-input-large");
+    expect(largeFields.length).toBe(4);
+    for (const field of largeFields) {
+      expect(["INPUT", "SELECT"]).toContain(field.tagName);
+    }
+  });
 });
