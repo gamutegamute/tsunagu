@@ -15,6 +15,8 @@ class Settings:
     hq_emails: frozenset[str]
     field_emails: frozenset[str]
     gateway_api_key: str
+    demo_reset_enabled: bool
+    demo_admin_emails: frozenset[str]
 
 
 def _email_set(name: str) -> frozenset[str]:
@@ -23,6 +25,10 @@ def _email_set(name: str) -> frozenset[str]:
         for email in os.getenv(name, "").split(",")
         if email.strip()
     )
+
+
+def _bool(name: str, default: bool = False) -> bool:
+    return os.getenv(name, str(default)).strip().lower() == "true"
 
 
 def get_settings() -> Settings:
@@ -38,6 +44,8 @@ def get_settings() -> Settings:
         hq_emails=_email_set("AUTH_HQ_EMAILS"),
         field_emails=_email_set("AUTH_FIELD_EMAILS"),
         gateway_api_key=os.getenv("GATEWAY_API_KEY", ""),
+        demo_reset_enabled=_bool("DEMO_RESET_ENABLED"),
+        demo_admin_emails=_email_set("DEMO_ADMIN_EMAILS"),
     )
 
 
@@ -61,6 +69,8 @@ def validate_runtime_settings() -> None:
         missing.append("COGNITO_ISSUER")
     if settings.auth_mode == "cognito" and not settings.hq_emails:
         missing.append("AUTH_HQ_EMAILS")
+    if settings.demo_reset_enabled and not settings.demo_admin_emails:
+        missing.append("DEMO_ADMIN_EMAILS")
 
     if missing:
         raise RuntimeError(f"Production configuration is incomplete: {', '.join(missing)}")

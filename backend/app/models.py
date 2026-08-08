@@ -151,3 +151,7 @@ class EmergencyPacket(BaseModel):
 
 class EmergencyPacketCreate(BaseModel):
     packet: str = Field(min_length=1, max_length=240)
+
+
+class DemoResetRequest(BaseModel):
+    confirmation: str = Field(min_length=1, max_length=50)

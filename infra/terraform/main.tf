@@ -293,6 +293,14 @@ resource "aws_ecs_express_gateway_service" "app" {
       name  = "AUTH_FIELD_EMAILS"
       value = join(",", [for email in var.field_emails : lower(email)])
     }
+    environment {
+      name  = "DEMO_RESET_ENABLED"
+      value = tostring(var.demo_reset_enabled)
+    }
+    environment {
+      name  = "DEMO_ADMIN_EMAILS"
+      value = join(",", [for email in var.demo_admin_emails : lower(email)])
+    }
 
     secret {
       name       = "DATABASE_URL"

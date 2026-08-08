@@ -2,7 +2,7 @@ import os
 import sys
 
 from app.config import get_settings
-from app.db import get_conn, seed_demo_data
+from app.db import reset_demo_dataset
 
 
 def main() -> None:
@@ -23,11 +23,7 @@ def main() -> None:
         )
         sys.exit(1)
 
-    with get_conn() as conn:
-        conn.execute("TRUNCATE observations, emergency_packets, shelters CASCADE;")
-        conn.commit()
-
-    seed_demo_data()
+    reset_demo_dataset()
     print("デモデータをリセットしました(shelters/observations/emergency_packetsを初期化し、デモデータを再投入)。")
 
 

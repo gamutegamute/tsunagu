@@ -6,3 +6,7 @@ google_client_secret  = "set-with-TF_VAR_google_client_secret"
 # Real addresses belong in encrypted CI secrets or an untracked terraform.tfvars.
 hq_emails    = ["hq@example.com"]
 field_emails = ["field@example.com"]
+
+# Enable only for the demo period and limit access to selected HQ accounts.
+demo_reset_enabled = false
+demo_admin_emails  = ["demo-admin@example.com"]

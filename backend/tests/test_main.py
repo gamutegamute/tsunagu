@@ -68,6 +68,7 @@ def test_frontend_routes_return_index_html(tmp_path, monkeypatch):
         "/",
         "/field-report",
         "/dashboard",
+        "/demo-control",
         "/dev-preview",
         "/login",
         "/incident",

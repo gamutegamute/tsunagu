@@ -26,6 +26,8 @@ services:
       AUTH_MODE: dev
       SESSION_SECRET: local-development-session-secret
       GATEWAY_API_KEY: local-gateway-key
+      DEMO_RESET_ENABLED: "true"
+      DEMO_ADMIN_EMAILS: local-hq@tsunagu.local
     ports:
       - "8000:8000"
     volumes:
