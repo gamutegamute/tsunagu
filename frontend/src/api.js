@@ -39,6 +39,11 @@ export const logout = () => api("/api/auth/logout", { method: "POST" });
 export const fetchShelters = () => api("/api/shelters");
 export const fetchDashboard = () => api("/api/dashboard");
 export const fetchEmergencyPackets = () => api("/api/emergency-packets");
+export const fetchDemoControlStatus = () => api("/api/admin/demo");
+export const resetDemoData = (confirmation) => api("/api/admin/demo/reset", {
+  method: "POST",
+  body: JSON.stringify({ confirmation }),
+});
 
 export const createObservation = (payload) => api("/api/observations", {
   method: "POST",

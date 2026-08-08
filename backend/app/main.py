@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -22,13 +23,15 @@ from app.auth import (
     logout_url,
     require_authenticated_user,
     require_csrf,
+    require_demo_admin,
     require_gateway_key,
     require_hq,
 )
 from app.config import validate_runtime_settings
-from app.db import get_conn, seed_demo_data
+from app.db import get_conn, get_demo_data_counts, reset_demo_dataset, seed_demo_data
 from app.emergency_packet import parse_emergency_packet
 from app.models import (
+    DemoResetRequest,
     EmergencyPacket,
     EmergencyPacketCreate,
     Incident,
@@ -46,6 +49,10 @@ from app.models import (
 )
 from app.status import decide_request_code, decide_status
 from app.rate_limit import SlidingWindowRateLimiter
+
+logger = logging.getLogger(__name__)
+DEMO_RESET_CONFIRMATION = "TSUNAGUをリセット"
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -94,6 +101,7 @@ def service_worker() -> FileResponse:
 @app.get("/", include_in_schema=False)
 @app.get("/field-report", include_in_schema=False)
 @app.get("/dashboard", include_in_schema=False)
+@app.get("/demo-control", include_in_schema=False)
 @app.get("/dev-preview", include_in_schema=False)
 @app.get("/login", include_in_schema=False)
 @app.get("/incident", include_in_schema=False)
@@ -156,6 +164,39 @@ def logout(
 ) -> dict[str, str]:
     clear_session(response)
     return {"logout_url": logout_url()}
+
+
+@app.get("/api/admin/demo")
+def get_demo_control_status(
+    _: AuthUser = Depends(require_demo_admin),
+) -> dict:
+    return {
+        "confirmation_phrase": DEMO_RESET_CONFIRMATION,
+        "counts": get_demo_data_counts(),
+    }
+
+
+@app.post(
+    "/api/admin/demo/reset",
+    dependencies=[Depends(require_csrf)],
+)
+def reset_demo_data(
+    payload: DemoResetRequest,
+    user: AuthUser = Depends(require_demo_admin),
+) -> dict:
+    if payload.confirmation != DEMO_RESET_CONFIRMATION:
+        raise HTTPException(status_code=400, detail="確認文が一致しません")
+
+    logger.warning("Demo reset requested by %s", user.email)
+    try:
+        counts = reset_demo_dataset()
+    except Exception:
+        logger.exception("Demo reset failed for %s", user.email)
+        raise HTTPException(status_code=500, detail="デモデータの初期化に失敗しました")
+
+    reset_at = datetime.now(timezone.utc).isoformat()
+    logger.warning("Demo reset completed by %s at %s: %s", user.email, reset_at, counts)
+    return {"reset_at": reset_at, "counts": counts}
 
 
 @app.get("/api/shelters", response_model=list[Shelter])

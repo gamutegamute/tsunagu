@@ -43,3 +43,15 @@ variable "field_emails" {
   type      = list(string)
   sensitive = true
 }
+
+variable "demo_reset_enabled" {
+  description = "Enable the protected demo reset endpoint."
+  type        = bool
+  default     = false
+}
+
+variable "demo_admin_emails" {
+  description = "HQ email addresses allowed to reset demo data."
+  type        = list(string)
+  default     = []
+}

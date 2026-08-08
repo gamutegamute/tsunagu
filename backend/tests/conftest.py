@@ -13,5 +13,7 @@ def prepare_database() -> None:
     os.environ["AUTH_MODE"] = "dev"
     os.environ["GATEWAY_API_KEY"] = "test-gateway-key"
     os.environ["DEMO_SEED"] = "true"
+    os.environ["DEMO_RESET_ENABLED"] = "true"
+    os.environ["DEMO_ADMIN_EMAILS"] = "local-hq@tsunagu.local"
     command.upgrade(Config("alembic.ini"), "head")
     seed_demo_data()
