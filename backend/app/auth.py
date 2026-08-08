@@ -104,7 +104,20 @@ def _set_session(response: Response, user: AuthUser) -> None:
 def clear_session(response: Response) -> None:
     response.delete_cookie(SESSION_COOKIE, path="/")
     response.delete_cookie(CSRF_COOKIE, path="/")
-    response.delete_cookie(OAUTH_COOKIE, path="/")
+    response.delete_cookie(OAUTH_COOKIE, path="/api/auth")
+
+
+def logout_url() -> str:
+    settings = get_settings()
+    if settings.auth_mode != "cognito":
+        return "/login"
+    query = urlencode(
+        {
+            "client_id": settings.cognito_client_id,
+            "logout_uri": f"{settings.public_base_url}/login",
+        }
+    )
+    return f"{settings.cognito_domain}/logout?{query}"
 
 
 def get_optional_user(session: str | None = Cookie(default=None, alias=SESSION_COOKIE)) -> AuthUser | None:

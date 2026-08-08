@@ -20,6 +20,7 @@ from app.auth import (
     dev_login,
     get_optional_user,
     login_redirect,
+    logout_url,
     require_authenticated_user,
     require_csrf,
     require_demo_admin,
@@ -156,11 +157,13 @@ def current_user(user: AuthUser = Depends(require_authenticated_user)) -> dict[s
     return {"email": user.email, "name": user.name, "role": user.role}
 
 
-@app.post("/api/auth/logout", status_code=204, dependencies=[Depends(require_csrf)])
-def logout(_: AuthUser = Depends(require_authenticated_user)) -> Response:
-    response = Response(status_code=204)
+@app.post("/api/auth/logout", dependencies=[Depends(require_csrf)])
+def logout(
+    response: Response,
+    _: AuthUser = Depends(require_authenticated_user),
+) -> dict[str, str]:
     clear_session(response)
-    return response
+    return {"logout_url": logout_url()}
 
 
 @app.get("/api/admin/demo")

@@ -117,6 +117,24 @@ def test_google_login_prompts_for_account_selection(monkeypatch):
     assert query["prompt"] == ["select_account"]
 
 
+def test_logout_clears_cognito_session(monkeypatch):
+    monkeypatch.setenv("AUTH_MODE", "cognito")
+    monkeypatch.setenv("AUTH_HQ_EMAILS", "local-hq@tsunagu.local")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://tsunagu.example.com")
+    monkeypatch.setenv("COGNITO_DOMAIN", "https://example.auth.ap-northeast-1.amazoncognito.com")
+    monkeypatch.setenv("COGNITO_CLIENT_ID", "test-client-id")
+
+    response = client.post("/api/auth/logout")
+
+    assert response.status_code == 200
+    logout = urlparse(response.json()["logout_url"])
+    assert logout.path == "/logout"
+    query = parse_qs(logout.query)
+    assert query["client_id"] == ["test-client-id"]
+    assert query["logout_uri"] == ["https://tsunagu.example.com/login"]
+    assert "tsunagu_session=\"\"" in response.headers["set-cookie"]
+
+
 def test_field_user_cannot_create_shelter():
     client.cookies.clear()
     login = client.post("/api/auth/dev-login", json={"role": "field", "name": "Field User"})
