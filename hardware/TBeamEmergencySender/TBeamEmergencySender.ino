@@ -130,6 +130,7 @@ void sendResultPage(int statusCode, const String &title, const String &message, 
 
 void showPortal() {
   String body = FPSTR(PORTAL_HTML);
+  body.replace("{{SHELTER_CODE}}", escapeHtml(TSUNAGU_SHELTER_CODE));
   webServer.sendHeader("Cache-Control", "no-store");
   webServer.send(200, "text/html; charset=utf-8", body);
 }
