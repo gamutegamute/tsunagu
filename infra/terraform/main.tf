@@ -102,14 +102,15 @@ resource "aws_db_instance" "main" {
 }
 
 locals {
-  database_url = "postgresql://tsunagu:${random_password.database.result}@${aws_db_instance.main.address}:5432/tsunagu"
+  database_url       = "postgresql://tsunagu:${random_password.database.result}@${aws_db_instance.main.address}:5432/tsunagu"
+  effective_base_url = trimsuffix(var.public_base_url != "" ? var.public_base_url : var.application_base_url, "/")
   callback_urls = concat(
     ["http://localhost:8000/api/auth/callback"],
-    var.application_base_url == "" ? [] : ["${trimsuffix(var.application_base_url, "/")}/api/auth/callback"]
+    local.effective_base_url == "" ? [] : ["${local.effective_base_url}/api/auth/callback"]
   )
   logout_urls = concat(
     ["http://localhost:8000/login"],
-    var.application_base_url == "" ? [] : ["${trimsuffix(var.application_base_url, "/")}/login"]
+    local.effective_base_url == "" ? [] : ["${local.effective_base_url}/login"]
   )
 }
 
@@ -259,11 +260,11 @@ resource "aws_ecs_express_gateway_service" "app" {
     }
     environment {
       name  = "AUTH_MODE"
-      value = var.application_base_url == "" ? "setup" : "cognito"
+      value = local.effective_base_url == "" ? "setup" : "cognito"
     }
     environment {
       name  = "PUBLIC_BASE_URL"
-      value = var.application_base_url
+      value = local.effective_base_url
     }
     environment {
       name  = "SESSION_HOURS"
