@@ -20,6 +20,12 @@ variable "application_base_url" {
   default     = ""
 }
 
+variable "public_base_url" {
+  description = "Optional public URL, such as a custom domain. When set, it is used for the application and Cognito callbacks."
+  type        = string
+  default     = ""
+}
+
 variable "cognito_domain_prefix" {
   type = string
 }

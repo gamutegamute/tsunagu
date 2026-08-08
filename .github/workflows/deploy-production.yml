@@ -64,6 +64,7 @@ jobs:
       TF_VAR_field_emails: ${{ secrets.FIELD_EMAILS_JSON }}
       TF_VAR_demo_reset_enabled: ${{ vars.DEMO_RESET_ENABLED || 'false' }}
       TF_VAR_demo_admin_emails: ${{ vars.DEMO_ADMIN_EMAILS_JSON || '[]' }}
+      TF_VAR_public_base_url: ${{ vars.PUBLIC_BASE_URL || '' }}
       TF_VAR_image_tag: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
