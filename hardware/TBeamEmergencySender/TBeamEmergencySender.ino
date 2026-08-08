@@ -159,8 +159,10 @@ void handleSend() {
   int peopleCount = 0;
   int waterStock = 0;
 
-  if (!isAllowedValue(shelterCode, ALLOWED_SHELTER_CODES, sizeof(ALLOWED_SHELTER_CODES) / sizeof(ALLOWED_SHELTER_CODES[0])) ||
-      !isValidTime(packetTime) ||
+  const bool isAllowedShelter = (shelterCode == TSUNAGU_SHELTER_CODE) || 
+                                isAllowedValue(shelterCode, ALLOWED_SHELTER_CODES, sizeof(ALLOWED_SHELTER_CODES) / sizeof(ALLOWED_SHELTER_CODES[0]));
+
+  if (!isAllowedShelter || !isValidTime(packetTime) ||
       !parseReportValue(peopleCountText, peopleCount) ||
       !parseReportValue(waterStockText, waterStock) ||
       !isAllowedValue(status, ALLOWED_STATUSES, sizeof(ALLOWED_STATUSES) / sizeof(ALLOWED_STATUSES[0])) ||
