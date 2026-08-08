@@ -54,9 +54,9 @@ Arduino側が受け付ける契約は次のとおりです。
 - `status`: `NORMAL` / `WARNING` / `ALERT` / `CRITICAL`
 - `request_code`: `REQ_WATER` / `REQ_MEDICAL` / `REQ_FOOD` / `REQ_RESCUE` / `REQ_CONFIRM` / `NONE`
 
-避難所コードはフォームから受け取らず、`device_config.h`の固定値を使います。時刻はフロント側JavaScriptが送信直前に設定します。Arduino側でも全項目を再検証し、不正な入力はLoRaへ送りません。
+避難所コードはフォーム上の選択肢から送信されます。初期値（デフォルト）には `device_config.h` の設定が使用され、URLパラメータで事前入力されている場合はそちらが優先的に選択されます。時刻はフロント側JavaScriptが送信直前に設定します。Arduino側でも全項目（許可リストに含まれる避難所コードかどうかの検証を含む）を再検証し、不正な入力はLoRaへ送りません。
 
-フォーム内で避難所コードを確認表示する場所には`{{SHELTER_CODE}}`を入れます。T-Beamが配信前に設定値へ置き換えます。
+フォーム内で避難所コードの初期値（デフォルト）を埋め込む場所には`{{SHELTER_CODE}}`を入れます。T-Beamが配信前に設定値へ置き換えます。
 
 `portal_html.h`は生成ファイルです。フォームを変更するときは`tools/tbeam-emergency-form.html`を編集し、同期コマンドを再実行してください。
 
