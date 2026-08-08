@@ -125,7 +125,7 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
   <div class="field">
     <label for="shelterCode">避難所コード <span aria-hidden="true">*</span></label>
     <select id="shelterCode" required>
-      <option value="AIT001" selected>AIT001 (Shelter A / 体育館)</option>
+      <option value="AIT001">AIT001 (Shelter A / 体育館)</option>
       <option value="AIT002">AIT002 (Shelter B / 講義棟)</option>
       <option value="AIT003">AIT003 (Shelter C / 学生センター)</option>
     </select>
@@ -179,7 +179,8 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
 </main>
 
 <script>
-
+  // T-Beamが配信時に{{SHELTER_CODE}}をdevice_config.hの固定値に置き換える。
+  const DEFAULT_SHELTER_CODE = "{{SHELTER_CODE}}";
 
   // 決定事項32: インフラ側の実装(hardware/TBeamEmergencySender)に合わせた契約
   const SUBMIT_ENDPOINT = "/send";
@@ -187,7 +188,15 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
   // 決定事項31(改訂版): クラウド版アプリから遷移してきた場合、
   // 個人情報を含まない最低限の値だけをURLパラメータで事前入力する
   // 例: http://192.168.4.1/?people=170&water=18&status=WARNING&request=REQ_WATER
-  function applyPrefillFromQuery() {
+  function applyPrefill() {
+    // 1. まずデフォルトの避難所コードを適用する（T-Beam置換値）
+    if (DEFAULT_SHELTER_CODE && !DEFAULT_SHELTER_CODE.startsWith("{{")) {
+      const select = document.getElementById("shelterCode");
+      const hasOption = Array.from(select.options).some(function (opt) { return opt.value === DEFAULT_SHELTER_CODE; });
+      if (hasOption) select.value = DEFAULT_SHELTER_CODE;
+    }
+
+    // 2. URLパラメータがあればそれを優先して適用する（事前入力）
     const params = new URLSearchParams(window.location.search);
     const shelter = params.get("shelter") || params.get("shelter_code");
     const people = params.get("people");
@@ -271,7 +280,7 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
     document.getElementById(id).addEventListener("input", updatePreview);
     document.getElementById(id).addEventListener("change", updatePreview);
   });
-  applyPrefillFromQuery();
+  applyPrefill();
   updatePreview();
 
   function showResult(success, message) {

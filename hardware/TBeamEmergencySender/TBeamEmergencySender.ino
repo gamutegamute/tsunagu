@@ -38,6 +38,7 @@ bool transmitting = false;
 const char *const ALLOWED_STATUSES[] = {"NORMAL", "WARNING", "ALERT", "CRITICAL"};
 const char *const ALLOWED_REQUEST_CODES[] = {
     "REQ_WATER", "REQ_MEDICAL", "REQ_FOOD", "REQ_RESCUE", "REQ_CONFIRM", "NONE"};
+const char *const ALLOWED_SHELTER_CODES[] = {"AIT001", "AIT002", "AIT003"};
 
 bool isAllowedValue(const String &value, const char *const allowedValues[], size_t valueCount) {
   for (size_t index = 0; index < valueCount; ++index) {
@@ -157,7 +158,8 @@ void handleSend() {
   int peopleCount = 0;
   int waterStock = 0;
 
-  if (!isValidShelterCode(shelterCode.c_str()) || !isValidTime(packetTime) ||
+  if (!isAllowedValue(shelterCode, ALLOWED_SHELTER_CODES, sizeof(ALLOWED_SHELTER_CODES) / sizeof(ALLOWED_SHELTER_CODES[0])) ||
+      !isValidTime(packetTime) ||
       !parseReportValue(peopleCountText, peopleCount) ||
       !parseReportValue(waterStockText, waterStock) ||
       !isAllowedValue(status, ALLOWED_STATUSES, sizeof(ALLOWED_STATUSES) / sizeof(ALLOWED_STATUSES[0])) ||
