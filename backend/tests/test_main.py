@@ -1,4 +1,5 @@
 import concurrent.futures
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
@@ -274,6 +275,80 @@ def test_emergency_packet_syncs_and_deduplicates_observation():
         ).fetchall()
         assert len(observations) == 1
         assert observations[0]["reporter_type"] == "LORA_GATEWAY"
+
+
+def test_emergency_packet_button_mash_within_window_still_deduplicated(monkeypatch):
+    """再送ウィンドウ内(短時間)の同一内容送信は、これまで通り重複排除される(連打防止)。"""
+    packet = f"v1|AIT002|10:{uuid4().int % 60:02d}|61|22|WARNING|REQ_WATER"
+    base_time = datetime(2026, 1, 1, 5, tzinfo=timezone.utc)
+    call_times = iter([base_time, base_time + timedelta(seconds=3)])
+    monkeypatch.setattr(main_module, "_current_utc_time", lambda: next(call_times))
+
+    first = client.post("/api/emergency-packets", json={"packet": packet})
+    second = client.post("/api/emergency-packets", json={"packet": packet})
+    assert first.status_code == second.status_code == 201
+
+    with get_conn() as conn:
+        observations = conn.execute(
+            """
+            SELECT * FROM observations
+            WHERE shelter_id = 'AIT002' AND source = 'emergency_packet'
+              AND people_count = 61 AND water_stock = 22;
+            """
+        ).fetchall()
+    assert len(observations) == 1
+
+
+def test_emergency_packet_not_deduplicated_outside_retry_window(monkeypatch):
+    """
+    再送ウィンドウ(EMERGENCY_PACKET_DEDUP_WINDOW_SECONDS)を超えて離れていれば、
+    避難所・緊急度・人数・水在庫・要請コードがすべて同じでも別々の正当な報告として保存される。
+    (以前はraw_packet+日付(日単位)でハッシュ化しており、packet_time(分単位)まで一致する
+    別報告が同じ分に収まっただけで握りつぶされていた問題の回帰テスト)
+    """
+    packet = f"v1|AIT003|11:{uuid4().int % 60:02d}|42|50|NORMAL|NONE"
+    base_time = datetime(2026, 1, 1, 6, tzinfo=timezone.utc)
+    call_times = iter(
+        [base_time, base_time + timedelta(seconds=main_module.EMERGENCY_PACKET_DEDUP_WINDOW_SECONDS + 1)]
+    )
+    monkeypatch.setattr(main_module, "_current_utc_time", lambda: next(call_times))
+
+    first = client.post("/api/emergency-packets", json={"packet": packet})
+    second = client.post("/api/emergency-packets", json={"packet": packet})
+    assert first.status_code == second.status_code == 201
+
+    with get_conn() as conn:
+        observations = conn.execute(
+            """
+            SELECT * FROM observations
+            WHERE shelter_id = 'AIT003' AND source = 'emergency_packet'
+              AND people_count = 42 AND water_stock = 50;
+            """
+        ).fetchall()
+    assert len(observations) == 2
+
+
+def test_emergency_packet_three_consecutive_normal_reports_are_all_saved(monkeypatch):
+    """同じ避難所に同じ緊急度(NORMAL)で3回連続報告しても、再送ウィンドウの外であれば
+    すべて別々のobservationとして正しく保存・反映される。"""
+    packet = f"v1|AIT002|10:{uuid4().int % 60:02d}|55|60|NORMAL|NONE"
+    base_time = datetime(2026, 1, 1, 7, tzinfo=timezone.utc)
+    window = main_module.EMERGENCY_PACKET_DEDUP_WINDOW_SECONDS
+    call_times = iter([base_time, base_time + timedelta(seconds=window + 1), base_time + timedelta(seconds=2 * (window + 1))])
+    monkeypatch.setattr(main_module, "_current_utc_time", lambda: next(call_times))
+
+    responses = [client.post("/api/emergency-packets", json={"packet": packet}) for _ in range(3)]
+    assert [response.status_code for response in responses] == [201, 201, 201]
+
+    with get_conn() as conn:
+        observations = conn.execute(
+            """
+            SELECT * FROM observations
+            WHERE shelter_id = 'AIT002' AND urgency = 'NORMAL' AND source = 'emergency_packet'
+              AND people_count = 55 AND water_stock = 60;
+            """
+        ).fetchall()
+    assert len(observations) == 3
 
 
 def test_emergency_packet_deduplication_is_concurrent():
