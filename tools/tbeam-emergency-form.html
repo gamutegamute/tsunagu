@@ -120,9 +120,9 @@
   <div class="field">
     <label for="shelterCode">避難所コード <span aria-hidden="true">*</span></label>
     <select id="shelterCode" required>
-      <option value="AIT001">AIT001 (Shelter A / 体育館)</option>
-      <option value="AIT002">AIT002 (Shelter B / 講義棟)</option>
-      <option value="AIT003">AIT003 (Shelter C / 学生センター)</option>
+      <option value="AIT001">AIT001</option>
+      <option value="AIT002">AIT002</option>
+      <option value="AIT003">AIT003</option>
     </select>
   </div>
 
@@ -188,7 +188,15 @@
     if (DEFAULT_SHELTER_CODE && !DEFAULT_SHELTER_CODE.startsWith("{{")) {
       const select = document.getElementById("shelterCode");
       const hasOption = Array.from(select.options).some(function (opt) { return opt.value === DEFAULT_SHELTER_CODE; });
-      if (hasOption) select.value = DEFAULT_SHELTER_CODE;
+      
+      // 選択肢にデフォルト値がない場合は、独自コードとして動的に追加する
+      if (!hasOption) {
+        const opt = document.createElement("option");
+        opt.value = DEFAULT_SHELTER_CODE;
+        opt.textContent = DEFAULT_SHELTER_CODE + " (デフォルト)";
+        select.appendChild(opt);
+      }
+      select.value = DEFAULT_SHELTER_CODE;
     }
 
     // 2. URLパラメータがあればそれを優先して適用する（事前入力）
