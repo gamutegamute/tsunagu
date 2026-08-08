@@ -860,8 +860,26 @@ legend {
   display: flex;
   font-size: 13px;
   font-weight: 700;
+  gap: 6px;
   justify-content: center;
   padding: 6px 10px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.icon-nav-button:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.55);
+}
+
+/* Timelineの「戻る」ボタン: 他画面のicon-nav-buttonより控えめな見た目にする */
+.icon-nav-button.timeline-back-link {
+  border-color: rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  gap: 4px;
+}
+
+.icon-nav-button.timeline-back-link:hover {
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .scope-badge {

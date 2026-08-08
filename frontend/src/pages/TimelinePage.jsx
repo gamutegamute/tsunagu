@@ -33,8 +33,9 @@ export default function TimelinePage() {
     <>
       <header className="topbar">
         <div className="shelter-detail-title-group">
-          <button type="button" className="text-link-button shelter-detail-back-link" onClick={() => navigate("/dashboard")}>
-            ← 状況一覧
+          <button type="button" className="icon-nav-button timeline-back-link" onClick={() => navigate("/dashboard")}>
+            <span aria-hidden="true">←</span>
+            <span>状況一覧</span>
           </button>
           <h1 className="shelter-detail-title">Timeline — 全避難所 報告履歴</h1>
         </div>
