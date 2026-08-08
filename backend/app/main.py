@@ -704,6 +704,28 @@ def _packet_observed_at(packet_time: str, received_at: datetime) -> datetime:
         return received_at
 
 
+def _current_utc_time() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# tools/lora_serial_gateway.py re-sends a queued packet every >=5s until it is
+# accepted, and the T-Beam itself may re-transmit the same button press over
+# unreliable LoRa. Both are genuine retries of the *same* report and must
+# still collapse to one observation. A window a little wider than that retry
+# cadence absorbs those retries, while two separately-triggered reports that
+# happen to carry identical field values (e.g. two REQ_WATER presses minutes
+# apart with unchanged counts) fall in different windows and are both kept.
+EMERGENCY_PACKET_DEDUP_WINDOW_SECONDS = 10
+
+
+def _emergency_packet_observation_digest(raw_packet: str, dedup_time: datetime) -> str:
+    # 以前はraw_packet+日付(日単位)でハッシュ化していたため、packet_timeが同じ分に
+    # 収まっただけの別々の正当な報告まで衝突していた。受信時刻を秒単位の短いウィンドウに
+    # 丸めてハッシュに含めることで、短時間の再送・連打だけを対象にする。
+    dedup_bucket = int(dedup_time.timestamp() // EMERGENCY_PACKET_DEDUP_WINDOW_SECONDS)
+    return hashlib.sha256(f"{raw_packet}:{dedup_bucket}".encode()).hexdigest()
+
+
 @app.post(
     "/api/emergency-packets",
     response_model=EmergencyPacket,
@@ -724,7 +746,8 @@ def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
             },
         ) from exc
 
-    received_date_jst = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
+    now_utc = _current_utc_time()
+    received_date_jst = now_utc.astimezone(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
     digest = hashlib.sha256(f"{packet.raw_packet}{received_date_jst}".encode()).hexdigest()
     packet_id = f"EP-{digest[:16]}"
 
@@ -757,9 +780,7 @@ def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
 
         if shelter_id is not None:
             observed_at = _packet_observed_at(packet.packet_time, row["received_at"])
-            event_digest = hashlib.sha256(
-                f"{packet.raw_packet}:{observed_at.date().isoformat()}".encode()
-            ).hexdigest()
+            event_digest = _emergency_packet_observation_digest(packet.raw_packet, now_utc)
             conn.execute(
                 """
                 INSERT INTO observations (
