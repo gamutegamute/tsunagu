@@ -1718,6 +1718,34 @@ legend {
   white-space: nowrap;
 }
 
+.timeline-shelter-group {
+  display: grid;
+  gap: 6px;
+}
+
+.timeline-history-toggle {
+  font-size: 12px;
+  padding: 2px 4px 2px 16px;
+}
+
+.timeline-history-panel {
+  border-left: 2px solid var(--line);
+  display: grid;
+  gap: 8px;
+  margin-left: 8px;
+  padding: 2px 0 4px 16px;
+}
+
+.timeline-history-status {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.timeline-history-error {
+  color: var(--danger, #c0392b);
+}
+
 /* ---------------------------------------------------------------------
    Demo control (direct URL only)
 --------------------------------------------------------------------- */

@@ -60,6 +60,10 @@ export const updateObservationVerification = (observationId, status) => api(
   { method: "PATCH", body: JSON.stringify({ status }) },
 );
 
+export const fetchShelterObservations = (shelterId) => api(
+  `/api/shelters/${encodeURIComponent(shelterId)}/observations`,
+);
+
 export const fetchIncidents = () => api("/api/incidents");
 
 export const confirmIncident = (observationId, { approverName, memo }) => api(

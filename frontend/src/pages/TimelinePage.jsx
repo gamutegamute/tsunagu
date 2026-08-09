@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
-import TimelineRow from "../components/timeline/TimelineRow.jsx";
+import TimelineShelterGroup from "../components/timeline/TimelineShelterGroup.jsx";
 import { useShelterList } from "../hooks/useShelterList.js";
 import { useDashboardData } from "../hooks/useDashboardData.js";
 import { mergeEmergencyDataIntoDashboard } from "../utils/emergencyPacket.js";
@@ -9,9 +9,9 @@ import { mergeEmergencyDataIntoDashboard } from "../utils/emergencyPacket.js";
  * PC向けTimeline画面(/dashboard/timeline)。
  * 全避難所の報告履歴を時系列(新しい順)で表示する(決定事項22: PC専用、モバイルは送信履歴のみ)。
  *
- * 現状のバックエンドAPI(GET /api/dashboard・GET /api/observations/latest)は
- * 「避難所ごとの最新1件」しか返さないため、このTimelineも各避難所の最新報告
- * 1件ずつの一覧になる(過去の報告は含まれない)。詳細は申し送り事項を参照。
+ * 避難所ごとに最新の報告を1行表示し、「▼ 過去の報告を見る」で
+ * GET /api/shelters/{id}/observations を呼んで過去の報告を遡って確認できる
+ * (アコーディオン形式、決定事項34-a関連の履歴API追加に対応)。
  */
 export default function TimelinePage() {
   const navigate = useNavigate();
@@ -44,21 +44,13 @@ export default function TimelinePage() {
       <main className="layout-desktop">
         <section className="panel">
           <p className="incident-header-note-dark timeline-note">
-            全避難所の最新の報告を新しい順に表示しています(各避難所の最新1件のみ。過去の報告履歴を遡って見るAPIは今後追加予定です)。
+            全避難所の最新の報告を新しい順に表示しています。避難所ごとに「▼ 過去の報告を見る」を押すと、過去の報告履歴を遡って確認できます。
           </p>
 
           <div className="timeline-list">
             {timelineEntries.length === 0 && <p className="incident-empty-state">報告履歴はまだありません</p>}
             {timelineEntries.map(({ shelter, observation }) => (
-              <TimelineRow
-                key={observation.id}
-                observedAt={observation.observed_at}
-                shelter={shelter}
-                reporterName={observation.reporter_name}
-                urgency={observation.urgency}
-                summary={observation.memo}
-                source={observation.source}
-              />
+              <TimelineShelterGroup key={shelter.id} shelter={shelter} latestObservation={observation} />
             ))}
           </div>
         </section>

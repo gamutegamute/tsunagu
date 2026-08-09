@@ -241,6 +241,78 @@ def test_dashboard_includes_shelter_capacity():
     assert item["shelter"]["capacity"] == 120
 
 
+def test_shelter_observations_requires_hq_login():
+    client.cookies.clear()
+    assert client.get("/api/shelters/AIT001/observations").status_code == 401
+
+
+def test_field_user_cannot_view_shelter_observations():
+    client.cookies.clear()
+    login = client.post("/api/auth/dev-login", json={"role": "field", "name": "Field User"})
+    client.headers["X-CSRF-Token"] = login.cookies.get("tsunagu_csrf")
+    assert client.get("/api/shelters/AIT001/observations").status_code == 403
+
+
+def test_shelter_observations_unknown_shelter_returns_404():
+    response = client.get("/api/shelters/AIT-DOES-NOT-EXIST/observations")
+    assert response.status_code == 404
+
+
+def test_shelter_observations_returns_full_history_newest_first():
+    shelter_id = f"AIT-TEST-{uuid4().hex[:8].upper()}"
+    client.post("/api/shelters", json={"id": shelter_id, "name": "History Shelter"})
+
+    base_time = datetime(2026, 8, 1, 9, 0, tzinfo=timezone.utc)
+    created_ids = []
+    for i in range(3):
+        payload = observation_payload(
+            shelter_id=shelter_id,
+            client_event_id=str(uuid4()),
+            memo=f"report {i}",
+            observed_at=(base_time + timedelta(minutes=i)).isoformat(),
+        )
+        response = client.post("/api/observations", json=payload)
+        assert response.status_code == 201
+        created_ids.append(response.json()["id"])
+
+    response = client.get(f"/api/shelters/{shelter_id}/observations")
+
+    assert response.status_code == 200
+    body = response.json()
+    # observed_at 降順(=直近の報告が先頭)で、投入した3件すべてが含まれる
+    assert [item["id"] for item in body] == list(reversed(created_ids))
+    assert all(item["shelter_id"] == shelter_id for item in body)
+
+
+def test_shelter_observations_respects_limit_query_param():
+    shelter_id = f"AIT-TEST-{uuid4().hex[:8].upper()}"
+    client.post("/api/shelters", json={"id": shelter_id, "name": "Limit Shelter"})
+
+    for _ in range(5):
+        payload = observation_payload(shelter_id=shelter_id, client_event_id=str(uuid4()))
+        assert client.post("/api/observations", json=payload).status_code == 201
+
+    response = client.get(f"/api/shelters/{shelter_id}/observations", params={"limit": 2})
+
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+
+
+def test_shelter_observations_limit_is_clamped_to_max():
+    shelter_id = f"AIT-TEST-{uuid4().hex[:8].upper()}"
+    client.post("/api/shelters", json={"id": shelter_id, "name": "Clamp Shelter"})
+    client.post(
+        "/api/observations",
+        json=observation_payload(shelter_id=shelter_id, client_event_id=str(uuid4())),
+    )
+
+    # 上限(500)を超える値を指定しても、上限でクランプされてエラーにはならない
+    response = client.get(f"/api/shelters/{shelter_id}/observations", params={"limit": 10_000})
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
 def test_emergency_packet_requires_gateway_key():
     client.headers.pop("X-Gateway-Key")
     response = client.post(

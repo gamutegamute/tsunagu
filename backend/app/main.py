@@ -343,6 +343,42 @@ def latest_observations(_: AuthUser = Depends(require_hq)) -> list[dict]:
         )
 
 
+SHELTER_OBSERVATIONS_DEFAULT_LIMIT = 100
+SHELTER_OBSERVATIONS_MAX_LIMIT = 500
+
+
+@app.get("/api/shelters/{shelter_id}/observations", response_model=list[Observation])
+def shelter_observations(
+    shelter_id: str,
+    limit: int = SHELTER_OBSERVATIONS_DEFAULT_LIMIT,
+    _: AuthUser = Depends(require_hq),
+) -> list[dict]:
+    """
+    Timeline画面の「過去の報告履歴を遡って見る」機能向け。GET /api/dashboardは
+    各避難所の最新1件しか返さないため、対象避難所のobservationsを
+    observed_at降順(古い順ではなく新しい順)で返す専用エンドポイントを用意する。
+    件数上限を設け、報告が積み重なっても無限にレスポンスが増え続けないようにする。
+    """
+    limit = max(1, min(limit, SHELTER_OBSERVATIONS_MAX_LIMIT))
+    with get_conn() as conn:
+        shelter = conn.execute("SELECT id FROM shelters WHERE id = %s;", (shelter_id,)).fetchone()
+        if shelter is None:
+            raise HTTPException(status_code=404, detail="Shelter not found")
+
+        return list(
+            conn.execute(
+                """
+                SELECT *
+                FROM observations
+                WHERE shelter_id = %s
+                ORDER BY observed_at DESC, created_at DESC
+                LIMIT %s;
+                """,
+                (shelter_id, limit),
+            )
+        )
+
+
 @app.get("/api/dashboard", response_model=list[ShelterStatus])
 def dashboard(_: AuthUser = Depends(require_hq)) -> list[dict]:
     with get_conn() as conn:
