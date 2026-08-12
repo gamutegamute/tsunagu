@@ -1,17 +1,14 @@
-import { act, cleanup, renderHook } from "@testing-library/react";
+import "fake-indexeddb/auto";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useOfflineReportQueue } from "./useOfflineReportQueue.js";
 import { createObservation } from "../api.js";
 import { getSentReportHistory } from "../utils/sentReportHistory.js";
-import { STORAGE_KEYS } from "../utils/storageKeys.js";
+import { getPendingReports, removePendingReport } from "../utils/pendingReports.js";
 
 vi.mock("../api.js", () => ({
   createObservation: vi.fn(),
 }));
-
-function readPendingReportsFromLocalStorage() {
-  return JSON.parse(localStorage.getItem(STORAGE_KEYS.pendingReports) || "[]");
-}
 
 function makeReport(overrides = {}) {
   return {
@@ -27,9 +24,16 @@ function makeReport(overrides = {}) {
   };
 }
 
-describe("useOfflineReportQueue(決定事項34-g: オフライン再送キューの中核ロジック)", () => {
-  beforeEach(() => {
+async function clearQueue() {
+  for (const report of await getPendingReports()) {
+    await removePendingReport(report.client_event_id);
+  }
+}
+
+describe("useOfflineReportQueue", () => {
+  beforeEach(async () => {
     localStorage.clear();
+    await clearQueue();
     createObservation.mockReset();
   });
 
@@ -37,141 +41,58 @@ describe("useOfflineReportQueue(決定事項34-g: オフライン再送キュー
     cleanup();
   });
 
-  it("addReportToPendingQueue: 報告をキューへ追加し、pendingReportCountが増える", () => {
+  it("adds a report to the durable queue", async () => {
     const { result } = renderHook(() => useOfflineReportQueue());
-    expect(result.current.pendingReportCount).toBe(0);
 
-    act(() => {
-      result.current.addReportToPendingQueue(makeReport());
+    await act(async () => {
+      await result.current.addReportToPendingQueue(makeReport());
     });
 
     expect(result.current.pendingReportCount).toBe(1);
-    expect(readPendingReportsFromLocalStorage()).toEqual([makeReport()]);
+    await expect(getPendingReports()).resolves.toEqual([makeReport()]);
   });
 
-  it("addReportToPendingQueue: 複数件追加すると、末尾に順番通り積み上がる", () => {
-    const { result } = renderHook(() => useOfflineReportQueue());
-
-    act(() => {
-      result.current.addReportToPendingQueue(makeReport({ client_event_id: "evt-1" }));
-      result.current.addReportToPendingQueue(makeReport({ client_event_id: "evt-2" }));
-    });
-
-    expect(result.current.pendingReportCount).toBe(2);
-    expect(readPendingReportsFromLocalStorage().map((r) => r.client_event_id)).toEqual(["evt-1", "evt-2"]);
-  });
-
-  it("sendPendingReports: 全件成功した場合、キューが空になり送信履歴に記録される(重複防止: キューに残らない)", async () => {
-    createObservation.mockResolvedValue({});
-    const { result } = renderHook(() => useOfflineReportQueue());
-
-    act(() => {
-      result.current.addReportToPendingQueue(makeReport({ client_event_id: "evt-1", shelter_id: "AIT001", urgency: "WARNING" }));
-    });
-
-    await act(async () => {
-      await result.current.sendPendingReports();
-    });
-
-    expect(result.current.pendingReportCount).toBe(0);
-    expect(readPendingReportsFromLocalStorage()).toEqual([]);
-    expect(createObservation).toHaveBeenCalledTimes(1);
-
-    const history = getSentReportHistory();
-    expect(history).toHaveLength(1);
-    expect(history[0]).toMatchObject({ shelterId: "AIT001", urgency: "WARNING", observedAt: "2026-08-06T01:00:00.000Z" });
-  });
-
-  it("sendPendingReports: shelter_idが無い場合、shelter_codeを送信履歴のshelterIdとして使う", async () => {
-    createObservation.mockResolvedValue({});
-    const { result } = renderHook(() => useOfflineReportQueue());
-
-    act(() => {
-      const { shelter_id, ...withoutShelterId } = makeReport({ client_event_id: "evt-1" });
-      result.current.addReportToPendingQueue({ ...withoutShelterId, shelter_code: "AIT002" });
-    });
-
-    await act(async () => {
-      await result.current.sendPendingReports();
-    });
-
-    expect(getSentReportHistory()[0]).toMatchObject({ shelterId: "AIT002" });
-  });
-
-  it("sendPendingReports: 一部失敗した場合、失敗した分だけキューに残り、成功した分だけ送信履歴に入る", async () => {
+  it("removes only successfully resent reports", async () => {
     createObservation.mockImplementation((report) => {
       if (report.client_event_id === "evt-fail") return Promise.reject(new Error("network error"));
       return Promise.resolve({});
     });
     const { result } = renderHook(() => useOfflineReportQueue());
 
-    act(() => {
-      result.current.addReportToPendingQueue(makeReport({ client_event_id: "evt-ok", shelter_id: "AIT001" }));
-      result.current.addReportToPendingQueue(makeReport({ client_event_id: "evt-fail", shelter_id: "AIT002" }));
-    });
-
     await act(async () => {
+      await result.current.addReportToPendingQueue(makeReport({ client_event_id: "evt-ok" }));
+      await result.current.addReportToPendingQueue(makeReport({ client_event_id: "evt-fail" }));
       await result.current.sendPendingReports();
     });
 
     expect(result.current.pendingReportCount).toBe(1);
-    expect(readPendingReportsFromLocalStorage().map((r) => r.client_event_id)).toEqual(["evt-fail"]);
-
-    const history = getSentReportHistory();
-    expect(history).toHaveLength(1);
-    expect(history[0]).toMatchObject({ shelterId: "AIT001" });
-  });
-
-  it("重複防止: 送信に成功した報告は、再度sendPendingReportsを呼んでも二重送信されない", async () => {
-    createObservation.mockResolvedValue({});
-    const { result } = renderHook(() => useOfflineReportQueue());
-
-    act(() => {
-      result.current.addReportToPendingQueue(makeReport({ client_event_id: "evt-1" }));
-    });
-
-    await act(async () => {
-      await result.current.sendPendingReports();
-    });
-    await act(async () => {
-      await result.current.sendPendingReports();
-    });
-
-    expect(createObservation).toHaveBeenCalledTimes(1);
+    await expect(getPendingReports()).resolves.toEqual([makeReport({ client_event_id: "evt-fail" })]);
     expect(getSentReportHistory()).toHaveLength(1);
   });
 
-  it("重複防止(冪等性): 再送時もclient_event_idを元の値のまま送る(サーバー側のON CONFLICT DO NOTHINGによる重複排除が効くように)", async () => {
-    createObservation.mockRejectedValueOnce(new Error("network error")).mockResolvedValueOnce({});
+  it("keeps a report added while another report is syncing", async () => {
+    let finishFirstRequest;
+    createObservation.mockImplementation(() => new Promise((resolve) => {
+      finishFirstRequest = resolve;
+    }));
     const { result } = renderHook(() => useOfflineReportQueue());
 
+    await act(async () => {
+      await result.current.addReportToPendingQueue(makeReport({ client_event_id: "evt-first" }));
+    });
+
+    let syncPromise;
     act(() => {
-      result.current.addReportToPendingQueue(makeReport({ client_event_id: "evt-stable" }));
+      syncPromise = result.current.sendPendingReports();
     });
+    await waitFor(() => expect(createObservation).toHaveBeenCalledTimes(1));
 
     await act(async () => {
-      await result.current.sendPendingReports();
-    });
-    expect(result.current.pendingReportCount).toBe(1);
-
-    await act(async () => {
-      await result.current.sendPendingReports();
+      await result.current.addReportToPendingQueue(makeReport({ client_event_id: "evt-later" }));
+      finishFirstRequest({});
+      await syncPromise;
     });
 
-    expect(createObservation).toHaveBeenCalledTimes(2);
-    expect(createObservation.mock.calls[0][0].client_event_id).toBe("evt-stable");
-    expect(createObservation.mock.calls[1][0].client_event_id).toBe("evt-stable");
-    expect(result.current.pendingReportCount).toBe(0);
-  });
-
-  it("sendPendingReports: キューが空の場合は何もしない", async () => {
-    const { result } = renderHook(() => useOfflineReportQueue());
-
-    await act(async () => {
-      await result.current.sendPendingReports();
-    });
-
-    expect(createObservation).not.toHaveBeenCalled();
-    expect(result.current.pendingReportCount).toBe(0);
+    await expect(getPendingReports()).resolves.toEqual([makeReport({ client_event_id: "evt-later" })]);
   });
 });

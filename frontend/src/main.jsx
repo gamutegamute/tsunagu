@@ -14,8 +14,13 @@ import DemoControlPage from "./pages/DemoControlPage.jsx";
 import { AuthProvider } from "./auth/AuthContext.jsx";
 import "./styles.css";
 
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  navigator.serviceWorker.register("/service-worker.js", { scope: "/" })
+    .then(() => navigator.serviceWorker.ready)
+    .then(() => window.dispatchEvent(new Event("tsunagu:pwa-ready")))
+    .catch(() => {
+      // The regular web app remains usable when a browser rejects PWA registration.
+    });
 }
 
 createRoot(document.getElementById("root")).render(

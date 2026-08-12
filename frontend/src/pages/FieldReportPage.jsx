@@ -31,11 +31,11 @@ import { createClientEventId } from "../utils/clientEventId.js";
  */
 export default function FieldReportPage() {
   const shelters = useShelterList();
-  const { pendingReportCount, addReportToPendingQueue, sendPendingReports } = useOfflineReportQueue();
+  const { pendingReportCount, isSyncing, addReportToPendingQueue, sendPendingReports } = useOfflineReportQueue();
 
   // 通信が復活したら、この端末の保留中の報告を再送する
   const [networkMode, offlinePhase] = useNetworkMode(() => {
-    sendPendingReports();
+    void sendPendingReports();
   });
 
   const isOnline = networkMode === "normal";
@@ -66,14 +66,14 @@ export default function FieldReportPage() {
         await createObservation(payload);
         addSentReportToHistory({ shelterId, urgency, observedAt: payload.observed_at });
       } catch (error) {
-        addReportToPendingQueue(payload);
+        await addReportToPendingQueue(payload);
       }
       return;
     }
 
     // オフライン中は常に未送信キューへ保存し、通信復旧後に通常APIで再送する。
     // 決定事項29: 実際のLoRa送信はT-Beam専用ページの担当のため、ここでは行わない。
-    addReportToPendingQueue(payload);
+    await addReportToPendingQueue(payload);
   }
 
   return (
@@ -99,6 +99,8 @@ export default function FieldReportPage() {
           networkMode={networkMode}
           offlinePhase={offlinePhase}
           pendingReportCount={pendingReportCount}
+          isSyncing={isSyncing}
+          onSyncPendingReports={sendPendingReports}
           onSubmitReport={handleSubmitReport}
         />
       </main>
