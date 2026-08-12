@@ -18,16 +18,26 @@ export function useShelterList() {
   });
 
   useEffect(() => {
-    fetchShelters()
-      .then((items) => {
-        if (items.length > 0) {
+    let disposed = false;
+
+    async function reloadShelters() {
+      try {
+        const items = await fetchShelters();
+        if (!disposed && items.length > 0) {
           saveCachedShelters(items);
           setShelters(items);
         }
-      })
-      .catch(() => {
+      } catch {
         // Keep the last successfully fetched shelter list for offline startup.
-      });
+      }
+    }
+
+    void reloadShelters();
+    window.addEventListener("online", reloadShelters);
+    return () => {
+      disposed = true;
+      window.removeEventListener("online", reloadShelters);
+    };
   }, []);
 
   return shelters;
