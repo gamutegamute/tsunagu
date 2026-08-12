@@ -4,6 +4,7 @@
 const KEY_SUFFIXES = {
   pendingReports: "pendingReports",
   pendingReportsMigrated: "pendingReportsMigratedToIndexedDb",
+  cachedShelters: "cachedShelters",
   cachedDashboard: "cachedDashboard",
   reporterName: "reporterName",
   approverName: "approverName",
