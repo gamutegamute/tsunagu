@@ -1,22 +1,49 @@
+import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it } from "vitest";
-import { getPendingReports } from "./pendingReports.js";
+import {
+  addPendingReport,
+  getPendingReportCount,
+  getPendingReports,
+  removePendingReport,
+} from "./pendingReports.js";
 import { STORAGE_KEYS } from "./storageKeys.js";
 
-describe("getPendingReports", () => {
-  beforeEach(() => {
+const report = {
+  client_event_id: "event-1",
+  shelter_id: "AIT001",
+  urgency: "WARNING",
+  observed_at: "2026-08-06T02:00:00.000Z",
+};
+
+async function clearQueue() {
+  for (const item of await getPendingReports()) {
+    await removePendingReport(item.client_event_id);
+  }
+}
+
+describe("pending report store", () => {
+  beforeEach(async () => {
     localStorage.clear();
+    await clearQueue();
   });
 
-  it("何も保存されていない場合は空配列を返す", () => {
-    expect(getPendingReports()).toEqual([]);
+  it("starts empty", async () => {
+    await expect(getPendingReports()).resolves.toEqual([]);
   });
 
-  it("保存されているpendingReportsをそのまま返す", () => {
-    const reports = [
-      { shelter_id: "AIT001", urgency: "ALERT", observed_at: "2026-08-06T02:00:00.000Z" },
-    ];
-    localStorage.setItem(STORAGE_KEYS.pendingReports, JSON.stringify(reports));
+  it("migrates the legacy localStorage queue once", async () => {
+    localStorage.setItem(STORAGE_KEYS.pendingReports, JSON.stringify([report]));
+    localStorage.removeItem(STORAGE_KEYS.pendingReportsMigrated);
 
-    expect(getPendingReports()).toEqual(reports);
+    await expect(getPendingReports()).resolves.toEqual([report]);
+    expect(localStorage.getItem(STORAGE_KEYS.pendingReportsMigrated)).toBe("true");
+  });
+
+  it("uses client_event_id as an idempotent key", async () => {
+    await addPendingReport(report);
+    await addPendingReport({ ...report, urgency: "ALERT" });
+
+    await expect(getPendingReportCount()).resolves.toBe(1);
+    await expect(getPendingReports()).resolves.toEqual([{ ...report, urgency: "ALERT" }]);
   });
 });

@@ -1,9 +1,12 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import HistoryListItem from "../components/history/HistoryListItem.jsx";
 import { useShelterList } from "../hooks/useShelterList.js";
 import { getSentReportHistory } from "../utils/sentReportHistory.js";
 import { getPendingReports } from "../utils/pendingReports.js";
 import { mergeHistoryEntries } from "../utils/historyEntries.js";
+import { loadJson } from "../utils/localJson.js";
+import { STORAGE_KEYS } from "../utils/storageKeys.js";
 
 function formatTime(observedAtIso) {
   return new Date(observedAtIso).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
@@ -24,7 +27,18 @@ function formatTime(observedAtIso) {
 export default function HistoryPage() {
   const navigate = useNavigate();
   const shelters = useShelterList();
-  const history = mergeHistoryEntries(getSentReportHistory(), getPendingReports());
+  const [pendingReports, setPendingReports] = useState(() => loadJson(STORAGE_KEYS.pendingReports, []));
+  const history = mergeHistoryEntries(getSentReportHistory(), pendingReports);
+
+  useEffect(() => {
+    let isCurrent = true;
+    void getPendingReports().then((reports) => {
+      if (isCurrent) setPendingReports(reports);
+    });
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   function shelterLabel(shelterId) {
     const shelter = shelters.find((item) => item.id === shelterId);

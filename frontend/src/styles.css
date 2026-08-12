@@ -266,6 +266,19 @@ legend {
   margin: 0;
 }
 
+.sync-pending-reports {
+  width: 100%;
+  margin: 8px 0;
+  border: 1px solid var(--green);
+  background: white;
+  color: var(--green);
+}
+
+.sync-pending-reports:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

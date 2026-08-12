@@ -98,6 +98,20 @@ def service_worker() -> FileResponse:
     )
 
 
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def web_manifest() -> FileResponse:
+    return FileResponse(FRONTEND_DIR / "manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/workbox-{filename}.js", include_in_schema=False)
+def workbox_runtime(filename: str) -> FileResponse:
+    """Serve Workbox beside the root-scoped service worker."""
+    file_path = FRONTEND_DIR / f"workbox-{filename}.js"
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Workbox runtime not found")
+    return FileResponse(file_path, media_type="application/javascript")
+
+
 @app.get("/", include_in_schema=False)
 @app.get("/field-report", include_in_schema=False)
 @app.get("/dashboard", include_in_schema=False)

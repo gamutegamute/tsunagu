@@ -19,7 +19,15 @@ import { STORAGE_KEYS } from "../utils/storageKeys.js";
  * であり、このフォーム自身には手動切り替えの手段を持たせない。実際のLoRa送信は
  * T-Beam専用ページ(決定事項28・29)が担当するため、ここには送信処理を持たせない。
  */
-export default function FieldReportForm({ shelters, networkMode, offlinePhase, pendingReportCount, onSubmitReport }) {
+export default function FieldReportForm({
+  shelters,
+  networkMode,
+  offlinePhase,
+  pendingReportCount,
+  isSyncing,
+  onSyncPendingReports,
+  onSubmitReport,
+}) {
   const [reporterName, setReporterName] = useState(() => localStorage.getItem(STORAGE_KEYS.reporterName) || "");
   const [shelterId, setShelterId] = useState("");
   const [peopleCount, setPeopleCount] = useState(50);
@@ -67,6 +75,16 @@ export default function FieldReportForm({ shelters, networkMode, offlinePhase, p
         />
         <UrgencyField urgency={urgency} onChange={setUrgency} />
         <MemoField memo={memo} onChange={setMemo} />
+        {pendingReportCount > 0 && (
+          <button
+            className="sync-pending-reports"
+            type="button"
+            onClick={() => void onSyncPendingReports()}
+            disabled={networkMode !== "normal" || isSyncing}
+          >
+            {isSyncing ? "同期中..." : "未送信データを同期"}
+          </button>
+        )}
         <p className="pending">未送信 {pendingReportCount}件</p>
         <button type="submit">報告する</button>
       </form>
