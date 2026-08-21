@@ -3,7 +3,7 @@ export default function PeopleAndWaterFields({ peopleCount, waterStock, onPeople
   return (
     <div className="split">
       <label>
-        人数
+        人数(人)
         <input
           type="number"
           className="field-input-large"
@@ -14,7 +14,7 @@ export default function PeopleAndWaterFields({ peopleCount, waterStock, onPeople
         />
       </label>
       <label>
-        水
+        水(L)
         <input
           type="number"
           className="field-input-large"
