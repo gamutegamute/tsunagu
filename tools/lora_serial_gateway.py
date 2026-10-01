@@ -34,11 +34,14 @@ class PacketQueue:
         self.connection.commit()
 
     def pending(self) -> list[tuple[str, str]]:
-        return list(
-            self.connection.execute(
-                "SELECT id, packet FROM pending_packets ORDER BY queued_at, id"
-            )
-        )
+        return list(self.connection.execute("""
+            SELECT id, packet FROM pending_packets
+            ORDER BY CASE
+              WHEN packet LIKE '%|CRITICAL|%' THEN 0
+              WHEN packet LIKE '%|ALERT|%'    THEN 1
+              WHEN packet LIKE '%|WARNING|%'  THEN 2
+              ELSE 3 END, queued_at, id
+        """))
 
     def remove(self, packet_id: str) -> None:
         self.connection.execute("DELETE FROM pending_packets WHERE id = ?", (packet_id,))
@@ -67,7 +70,14 @@ def flush_queue(queue: PacketQueue, api_url: str, api_key: str) -> bool:
             post_packet(api_url, api_key, packet)
             queue.remove(packet_id)
             print(f"posted: {packet}", flush=True)
-        except (HTTPError, URLError, TimeoutError, ConnectionError) as exc:
+        except HTTPError as exc:
+            # 本部は応答した = このパケットだけの失敗。後ろのパケットは送りにいく
+            # (HTTPErrorはURLErrorのサブクラスなので、先に捕まえる)
+            all_sent = False
+            print(f"rejected: {packet} ({exc})", flush=True)
+            continue
+        except (URLError, TimeoutError, ConnectionError) as exc:
+            # 本部のネット自体に届かない。後ろも同じく失敗するので止める
             all_sent = False
             print(f"queued: {packet} ({exc})", flush=True)
             break
