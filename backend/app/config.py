@@ -17,6 +17,7 @@ class Settings:
     gateway_api_key: str
     demo_reset_enabled: bool
     demo_admin_emails: frozenset[str]
+    allow_v1_packets: bool
 
 
 def _email_set(name: str) -> frozenset[str]:
@@ -46,10 +47,17 @@ def get_settings() -> Settings:
         gateway_api_key=os.getenv("GATEWAY_API_KEY", ""),
         demo_reset_enabled=_bool("DEMO_RESET_ENABLED"),
         demo_admin_emails=_email_set("DEMO_ADMIN_EMAILS"),
+        # v1 Packetは署名が無いので、明示的に有効化したときだけ受け付ける。
+        allow_v1_packets=_bool("ALLOW_V1_PACKETS"),
     )
 
 
 def validate_runtime_settings() -> None:
+    from app.packet_keys import load_device_key_registry
+
+    # 端末台帳の書式誤りは、最初のPacket受信時ではなく起動時に気付けるようにする。
+    load_device_key_registry()
+
     settings = get_settings()
     if settings.app_env != "production":
         return

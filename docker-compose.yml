@@ -28,6 +28,11 @@ services:
       GATEWAY_API_KEY: local-gateway-key
       DEMO_RESET_ENABLED: "true"
       DEMO_ADMIN_EMAILS: local-hq@tsunagu.local
+      # 開発用: 署名なしのv1 Packetも受け付ける(コード上のデフォルトはfalse)。
+      ALLOW_V1_PACKETS: "true"
+      # v2の端末鍵はGit管理外。リポジトリ直下の .env(.env.example を参照)から渡す。
+      PACKET_DEVICE_KEYS: ${PACKET_DEVICE_KEYS:-}
+      PACKET_DISABLED_DEVICES: ${PACKET_DISABLED_DEVICES:-}
     ports:
       - "8000:8000"
     volumes:

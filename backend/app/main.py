@@ -27,9 +27,15 @@ from app.auth import (
     require_gateway_key,
     require_hq,
 )
-from app.config import validate_runtime_settings
+from app.config import get_settings, validate_runtime_settings
 from app.db import get_conn, get_demo_data_counts, reset_demo_dataset, seed_demo_data
-from app.emergency_packet import parse_emergency_packet
+from app.emergency_packet import (
+    ParsedEmergencyPacketV2,
+    packet_version,
+    parse_emergency_packet,
+    parse_emergency_packet_v2,
+    verify_packet_hmac,
+)
 from app.models import (
     DemoResetRequest,
     EmergencyPacket,
@@ -47,6 +53,7 @@ from app.models import (
     ShelterCreate,
     ShelterStatus,
 )
+from app.packet_keys import KeyLookupFailure, PacketKeyConfigError, load_device_key_registry
 from app.status import decide_request_code, decide_status
 from app.rate_limit import SlidingWindowRateLimiter
 
@@ -761,6 +768,10 @@ def _current_utc_time() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# v1の重複判定(従来どおり): v1には (device_id, install_id, sequence) のような端末側の
+# 識別子が無いため、サーバーの受信時刻を10秒ウィンドウに丸めたものとraw_packetで判定する。
+# v2はこの仕組みを使わず、(device_id, install_id, sequence) の一意制約で判定する。
+#
 # tools/lora_serial_gateway.py re-sends a queued packet every >=5s until it is
 # accepted, and the T-Beam itself may re-transmit the same button press over
 # unreliable LoRa. Both are genuine retries of the *same* report and must
@@ -769,6 +780,17 @@ def _current_utc_time() -> datetime:
 # happen to carry identical field values (e.g. two REQ_WATER presses minutes
 # apart with unchanged counts) fall in different windows and are both kept.
 EMERGENCY_PACKET_DEDUP_WINDOW_SECONDS = 10
+
+# reported_at(端末時計)と hub_received_at の差がこれを超えたら端末時計を信用しない。
+PACKET_TIME_TRUST_MAX_SKEW_SECONDS = 600
+
+JST = timezone(timedelta(hours=9))
+V1_PACKET_FORMAT = "version|shelter_code|packet_time|people_count|water_stock|status|request_code"
+V1_PACKET_EXAMPLE = "v1|AIT001|21:04|170|18|WARNING|REQ_WATER"
+V2_PACKET_FORMAT = (
+    "v2|device_id|key_id|install_id|sequence|reported_at|shelter_code|"
+    "people_count|water_stock|status|request_code|hmac"
+)
 
 
 def _emergency_packet_observation_digest(raw_packet: str, dedup_time: datetime) -> str:
@@ -779,6 +801,26 @@ def _emergency_packet_observation_digest(raw_packet: str, dedup_time: datetime) 
     return hashlib.sha256(f"{raw_packet}:{dedup_bucket}".encode()).hexdigest()
 
 
+def _packet_format_error(exc: ValueError, expected_format: str) -> HTTPException:
+    detail = {
+        "error": "Invalid LoRa packet format",
+        "code": "PACKET_FORMAT_INVALID",
+        "message": str(exc),
+        "expected_format": expected_format,
+    }
+    if expected_format == V1_PACKET_FORMAT:
+        detail["example"] = V1_PACKET_EXAMPLE
+    return HTTPException(status_code=400, detail=detail)
+
+
+def _hub_received_at(value: datetime | None, now_utc: datetime) -> datetime:
+    if value is None:
+        return now_utc
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 @app.post(
     "/api/emergency-packets",
     response_model=EmergencyPacket,
@@ -786,21 +828,30 @@ def _emergency_packet_observation_digest(raw_packet: str, dedup_time: datetime) 
     dependencies=[Depends(require_gateway_key)],
 )
 def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
-    try:
-        packet = parse_emergency_packet(payload.packet)
-    except ValueError as exc:
+    now_utc = _current_utc_time()
+    hub_received_at = _hub_received_at(payload.hub_received_at, now_utc)
+    version = packet_version(payload.packet)
+    if version == "v2":
+        return _create_emergency_packet_v2(payload.packet, hub_received_at)
+    if version == "v1" and not get_settings().allow_v1_packets:
         raise HTTPException(
             status_code=400,
             detail={
-                "error": "Invalid LoRa packet format",
-                "message": str(exc),
-                "expected_format": "version|shelter_code|packet_time|people_count|water_stock|status|request_code",
-                "example": "v1|AIT001|21:04|170|18|WARNING|REQ_WATER",
+                "error": "Emergency Packet v1 is disabled",
+                "code": "PACKET_VERSION_DISABLED",
+                "expected_format": V2_PACKET_FORMAT,
             },
-        ) from exc
+        )
+    return _create_emergency_packet_v1(payload.packet, now_utc, hub_received_at)
 
-    now_utc = _current_utc_time()
-    received_date_jst = now_utc.astimezone(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
+
+def _create_emergency_packet_v1(raw: str, now_utc: datetime, hub_received_at: datetime) -> dict:
+    try:
+        packet = parse_emergency_packet(raw)
+    except ValueError as exc:
+        raise _packet_format_error(exc, V1_PACKET_FORMAT) from exc
+
+    received_date_jst = now_utc.astimezone(JST).strftime("%Y-%m-%d")
     digest = hashlib.sha256(f"{packet.raw_packet}{received_date_jst}".encode()).hexdigest()
     packet_id = f"EP-{digest[:16]}"
 
@@ -811,9 +862,10 @@ def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
             """
             INSERT INTO emergency_packets (
                 id, version, shelter_code, shelter_id, packet_time,
-                people_count, water_stock, status, request_code, raw_packet
+                people_count, water_stock, status, request_code, raw_packet,
+                hub_received_at, signature_status
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'UNSIGNED_V1')
             ON CONFLICT (id) DO UPDATE SET raw_packet = EXCLUDED.raw_packet
             RETURNING *;
             """,
@@ -828,21 +880,23 @@ def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
                 packet.status,
                 packet.request_code,
                 packet.raw_packet,
+                hub_received_at,
             ),
         ).fetchone()
 
         if shelter_id is not None:
             observed_at = _packet_observed_at(packet.packet_time, row["received_at"])
+            # v1の重複判定はサーバー受信時刻(now_utc)の10秒ウィンドウ。hub_received_atは使わない。
             event_digest = _emergency_packet_observation_digest(packet.raw_packet, now_utc)
             conn.execute(
                 """
                 INSERT INTO observations (
                     id, shelter_id, client_event_id, people_count, water_stock,
                     urgency, memo, observed_at, reporter_name, reporter_type,
-                    verification_status, source
+                    verification_status, source, signature_status
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'LoRa Packet',
-                        'LORA_GATEWAY', 'UNVERIFIED', 'emergency_packet')
+                        'LORA_GATEWAY', 'UNVERIFIED', 'emergency_packet', 'UNSIGNED_V1')
                 ON CONFLICT (client_event_id) DO NOTHING;
                 """,
                 (
@@ -856,6 +910,183 @@ def create_emergency_packet(payload: EmergencyPacketCreate) -> dict:
                     observed_at,
                 ),
             )
+        conn.commit()
+        return row
+
+
+def _record_packet_security_event(
+    conn,
+    event_type: str,
+    reason: str,
+    packet: ParsedEmergencyPacketV2,
+    hub_received_at: datetime,
+    existing_packet_id: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO packet_security_events (
+            id, event_type, reason, device_id, key_id, install_id, sequence,
+            raw_packet, existing_packet_id, hub_received_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+        """,
+        (
+            f"PSE-{uuid4().hex}",
+            event_type,
+            reason,
+            packet.device_id,
+            packet.key_id,
+            packet.install_id,
+            packet.sequence,
+            packet.raw_packet,
+            existing_packet_id,
+            hub_received_at,
+        ),
+    )
+    # 鍵やHMACの期待値はログに出さない。識別子と理由だけを残す。
+    logger.warning(
+        "Emergency Packet security event %s reason=%s device_id=%s key_id=%s install_id=%s sequence=%s",
+        event_type,
+        reason,
+        packet.device_id,
+        packet.key_id,
+        packet.install_id,
+        packet.sequence,
+    )
+
+
+def _authenticate_packet_v2(packet: ParsedEmergencyPacketV2) -> str | None:
+    """認証失敗の理由を返す(成功ならNone)。理由は監査ログ用で、レスポンスには出さない。"""
+    try:
+        registry = load_device_key_registry()
+    except PacketKeyConfigError:
+        logger.error("Emergency Packet device key ledger is misconfigured")
+        raise HTTPException(status_code=503, detail="Emergency Packet device key ledger is unavailable") from None
+    key = registry.lookup(packet.device_id, packet.key_id)
+    if isinstance(key, KeyLookupFailure):
+        return key.value
+    if not verify_packet_hmac(key, packet):
+        return "HMAC_MISMATCH"
+    return None
+
+
+def _create_emergency_packet_v2(raw: str, hub_received_at: datetime) -> dict:
+    # 形式検証はHMAC検証より前に行う(形式が不正な入力では鍵を引かない)。
+    try:
+        packet = parse_emergency_packet_v2(raw)
+    except ValueError as exc:
+        raise _packet_format_error(exc, V2_PACKET_FORMAT) from exc
+
+    auth_failure = _authenticate_packet_v2(packet)
+    if auth_failure is not None:
+        # 認証に失敗したPacketは、CRITICALでも emergency_packets / observations に入れない。
+        with get_conn() as conn:
+            _record_packet_security_event(conn, "PACKET_AUTH_FAILED", auth_failure, packet, hub_received_at)
+            conn.commit()
+        # Gateway Key不正(401)と区別する。ゲートウェイは403を「このPacketだけ破棄」と扱える。
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "Emergency Packet authentication failed", "code": "PACKET_AUTH_FAILED"},
+        )
+
+    skew = abs((packet.reported_at - hub_received_at).total_seconds())
+    time_trust = "UNTRUSTED" if skew > PACKET_TIME_TRUST_MAX_SKEW_SECONDS else "TRUSTED"
+    observed_at = hub_received_at if time_trust == "UNTRUSTED" else packet.reported_at
+    dedup_key = f"v2|{packet.device_id}|{packet.install_id}|{packet.sequence}"
+    packet_id = f"EP-{hashlib.sha256(dedup_key.encode()).hexdigest()[:16]}"
+
+    with get_conn() as conn:
+        shelter = conn.execute("SELECT id FROM shelters WHERE id = %s;", (packet.shelter_code,)).fetchone()
+        shelter_id = shelter["id"] if shelter else None
+        # 同じキーが同時に来ても、一意制約で片方だけが入る(もう片方は既存行の確認へ進む)。
+        row = conn.execute(
+            """
+            INSERT INTO emergency_packets (
+                id, version, shelter_code, shelter_id, packet_time,
+                people_count, water_stock, status, request_code, raw_packet,
+                device_id, key_id, install_id, sequence,
+                reported_at, hub_received_at, time_trust, signature_status
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, 'SIGNATURE_VALID')
+            ON CONFLICT ON CONSTRAINT emergency_packets_device_install_sequence_key DO NOTHING
+            RETURNING *;
+            """,
+            (
+                packet_id,
+                packet.version,
+                packet.shelter_code,
+                shelter_id,
+                # 既存のpacket_time(HH:MM, JST)列との互換のため、reported_atから埋める。
+                packet.reported_at.astimezone(JST).strftime("%H:%M"),
+                packet.people_count,
+                packet.water_stock,
+                packet.status,
+                packet.request_code,
+                packet.raw_packet,
+                packet.device_id,
+                packet.key_id,
+                packet.install_id,
+                packet.sequence,
+                packet.reported_at,
+                hub_received_at,
+                time_trust,
+            ),
+        ).fetchone()
+
+        if row is None:
+            existing = conn.execute(
+                """
+                SELECT * FROM emergency_packets
+                WHERE device_id = %s AND install_id = %s AND sequence = %s;
+                """,
+                (packet.device_id, packet.install_id, packet.sequence),
+            ).fetchone()
+            if existing["raw_packet"] == packet.raw_packet:
+                # 同一キー・同一内容は再送。v1の再送と同じく既存の行を201で返す。
+                conn.commit()
+                return existing
+            _record_packet_security_event(
+                conn, "PACKET_DUPLICATE_CONFLICT", "CONTENT_MISMATCH", packet, hub_received_at, existing["id"]
+            )
+            conn.commit()
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "Emergency Packet sequence already used with different content",
+                    "code": "PACKET_DUPLICATE_CONFLICT",
+                    "packet_id": existing["id"],
+                },
+            )
+
+        if shelter_id is not None:
+            # 署名が正しくても verification_status(本部職員による確認)は従来どおり UNVERIFIED。
+            observation_id = f"OBS-{uuid4().hex}"
+            conn.execute(
+                """
+                INSERT INTO observations (
+                    id, shelter_id, client_event_id, people_count, water_stock,
+                    urgency, memo, observed_at, reporter_name, reporter_type,
+                    verification_status, source, signature_status
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'LoRa Packet',
+                        'LORA_GATEWAY', 'UNVERIFIED', 'emergency_packet', 'SIGNATURE_VALID');
+                """,
+                (
+                    observation_id,
+                    shelter_id,
+                    f"LORA-{packet_id}",
+                    packet.people_count,
+                    packet.water_stock,
+                    packet.status,
+                    f"[LoRa] Status: {packet.status}, Req: {packet.request_code}",
+                    observed_at,
+                ),
+            )
+            row = conn.execute(
+                "UPDATE emergency_packets SET observation_id = %s WHERE id = %s RETURNING *;",
+                (observation_id, row["id"]),
+            ).fetchone()
         conn.commit()
         return row
 
