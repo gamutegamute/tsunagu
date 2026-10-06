@@ -6,7 +6,7 @@ T-Beam が届く前後で使う、Emergency Packet 受信確認用のメモで�
 
 ```text
 スマートフォン
-  ↓ Wi-Fi: TSUNAGU-Emergency
+  ↓ Wi-Fi: TSUNAGU-<device_id>
 T-Beam A: 現場送信機（192.168.4.1）
   ↓ LoRa
 T-Beam B: 本部受信機
@@ -16,7 +16,13 @@ PC: tools/lora_serial_gateway.py
 Backend: POST /api/emergency-packets
 ```
 
-Emergency Packet は次の形式にします。
+送信機は Emergency Packet v2 を送ります(仕様は `docs/emergency-packet-v2.md`、送信機の初期設定は `docs/tbeam-provisioning.md`)。
+
+```text
+v2|device_id|key_id|install_id|sequence|reported_at|shelter_code|people_count|water_stock|status|request_code|hmac
+```
+
+v1(署名なし)の形式は次のとおりです。受信機とAPIは、設定によって v1 も扱えます。
 
 ```text
 v1|AIT001|21:04|170|18|WARNING|REQ_WATER
@@ -24,8 +30,11 @@ v1|AIT001|21:04|170|18|WARNING|REQ_WATER
 
 ## 実装ファイル
 
-- `hardware/TBeamEmergencySender/TBeamEmergencySender.ino`: Wi-Fi AP、フォーム配信、入力検証、LoRa送信
-- `hardware/TBeamEmergencySender/device_config.h`: 避難所コード、AP、無線設定
+- `hardware/TBeamEmergencySender/TBeamEmergencySender.ino`: Wi-Fi AP、フォーム配信、入力検証、USBシリアルの設定コマンド、LoRa送信
+- `hardware/TBeamEmergencySender/device_config.h`: 無線設定とWi-Fi名の接頭辞(端末ごとの値・鍵・パスワードは書かない)
+- `hardware/TBeamEmergencySender/device_settings.h`: 端末ごとの設定をNVSに保存する
+- `hardware/TBeamEmergencySender/emergency_packet_v2.h`: v2 Packet の生成とHMAC
+- `hardware/TBeamEmergencySender/carrier_sense.h`: 送信前キャリアセンス
 - `hardware/TBeamEmergencySender/portal_html.h`: フロント提供フォームを組み込んだArduino用ヘッダー
 - `tools/embed_tbeam_portal.py`: フロント提供フォームからArduino用ヘッダーを生成する同期ツール
 - `hardware/TBeamEmergencyReceiver/TBeamEmergencyReceiver.ino`: LoRa受信、シリアルへのPacket出力
@@ -46,19 +55,19 @@ python tools/embed_tbeam_portal.py --check
 
 Arduino側が受け付ける契約は次のとおりです。
 
+- 表示用: `GET /info` → `{"device_id": "...", "shelter_code": "..."}`(秘密は返さない)
 - 送信先: `POST /send`
 - Content-Type: `application/x-www-form-urlencoded`
-- `time`: `HH:MM`
-- `people_count`: 0以上の整数
-- `water_stock`: 0以上の整数
+- `reported_at`: Unix秒(UTC、10進)。スマートフォンの時計の値で、2024-01-01より前は拒否する
+- `people_count`: 0〜1,000,000の整数
+- `water_stock`: 0〜1,000,000の整数
 - `status`: `NORMAL` / `WARNING` / `ALERT` / `CRITICAL`
 - `request_code`: `REQ_WATER` / `REQ_MEDICAL` / `REQ_FOOD` / `REQ_RESCUE` / `REQ_CONFIRM` / `NONE`
+- 応答: JSON `{"ok": true/false, "message": "..."}`。送信中の二重要求は 409
 
-避難所コードは、フォーム上の選択肢から送信されます。送信機側の容量削減および不整合防止のため、フォーム上には日本語名を持たせず「AIT001」といったコードのみを表示します。初期値（デフォルト）には `device_config.h` の設定が使用され、URLパラメータで事前入力されている場合はそちらが優先的に選択されます。時刻はフロント側JavaScriptが送信直前に設定します。Arduino側でも全項目（許可リストに含まれる、あるいは自身のデフォルト避難所コードかどうかの検証を含む）を再検証し、不正な入力はLoRaへ送りません。
+避難所コードは、T-Beam の NVS に設定した値を使います。フォームでは選べず、`GET /info` の値を読み取り専用で表示します。端末ID・通し番号(sequence)・署名(hmac)は T-Beam が付け、ブラウザには渡しません。Arduino側でも全項目を再検証し、不正な入力はLoRaへ送りません。
 
 避難所コードの割り振り規則は `[組織コード3文字][3桁連番]` （例: `AIT001`）とします。
-
-フォーム内で避難所コードの初期値（デフォルト）を埋め込む場所には`{{SHELTER_CODE}}`を入れます。T-Beamが配信前に設定値へ置き換えます。
 
 `portal_html.h`は生成ファイルです。フォームを変更するときは`tools/tbeam-emergency-form.html`を編集し、同期コマンドを再実行してください。
 
@@ -73,17 +82,13 @@ Arduino IDEへ次を導入します。
 5. 受信側は`hardware/TBeamEmergencyReceiver/TBeamEmergencyReceiver.ino`を開く。
 6. Arduino IDEの「検証」で両方をコンパイルする。
 
-送信機へ書き込む前に、`hardware/TBeamEmergencySender/device_config.h`を確認します。
-
-- `TSUNAGU_SHELTER_CODE`: 送信機を置く避難所のコード
-- `TSUNAGU_AP_PASSWORD`: 8文字以上の会場用パスワード
-- `TSUNAGU_RADIO_*`: 受信機と一致するLoRa設定
+ボード定義とライブラリの版、書き込み後の初期設定(device_id、鍵、避難所コード、Wi-Fiのパスワード)は `docs/tbeam-provisioning.md` を参照してください。`hardware/TBeamEmergencySender/device_config.h` には、受信機と一致させる `TSUNAGU_RADIO_*` だけを置いています。
 
 無線設定は送信側と受信側で完全に一致させます。リポジトリの初期値は日本向け920MHzモデルを想定した出発点であり、実際に以前疎通した設定、使用機器の技適表示、利用場所の条件を確認してから送信してください。
 
 ## スマートフォンからの操作
 
-1. Wi-Fi設定から`TSUNAGU-Emergency`へ接続する。
+1. Wi-Fi設定から`TSUNAGU-<device_id>`へ接続する。
 2. 自動で画面が出ない場合は、SafariまたはChromeで`http://192.168.4.1/`を開く。
 3. 人数、水在庫、緊急度、要請を入力する。
 4. `LoRaで報告する`を押す。
@@ -181,7 +186,7 @@ python .\tools\lora_serial_gateway.py --port COM3
 
 ## 確認ポイント
 
-- スマートフォンに`TSUNAGU-Emergency`が表示される。
+- スマートフォンに`TSUNAGU-<device_id>`が表示される。
 - `http://192.168.4.1/`で報告フォームが開く。
 - 送信成功時の表示が`LoRa送出完了`であり、`本部受信済み`ではない。
 - 受信側のシリアル出力は説明文なしのPacket 1行だけになる。
