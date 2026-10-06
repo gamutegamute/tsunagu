@@ -8,6 +8,7 @@
 #define XPOWERS_CHIP_AXP2101
 #include <XPowersLib.h>
 
+#include "carrier_sense.h"
 #include "device_config.h"
 #include "portal_html.h"
 
@@ -189,21 +190,32 @@ void handleSend() {
 
   transmitting = true;
   digitalWrite(BOARD_LED_PIN, LOW);
-  const int transmissionState = radio.transmit(packet);
+  // キャリアセンスの再試行の間も、同じPacketを送る(作り直さない)。
+  const carrier_sense::Result result = carrier_sense::transmit(
+      radio, reinterpret_cast<const uint8_t *>(packet.c_str()), packet.length(), Serial);
   digitalWrite(BOARD_LED_PIN, HIGH);
   transmitting = false;
 
-  if (transmissionState == RADIOLIB_ERR_NONE) {
-    Serial.print(F("transmitted: "));
-    Serial.println(packet);
-    sendResultPage(200, "LoRa送出完了",
-                   "T-Beamから電波を送出しました。本部での受信はまだ保証されません。", true);
-    return;
+  switch (result.outcome) {
+    case carrier_sense::Outcome::Sent:
+      Serial.print(F("transmitted: "));
+      Serial.println(packet);
+      sendResultPage(200, "LoRa送出完了",
+                     "T-Beamから電波を送出しました。本部での受信はまだ保証されません。", true);
+      return;
+    case carrier_sense::Outcome::ChannelBusy:
+      sendResultPage(503, "電波が混み合っています",
+                     "周波数が使用中のため送信しませんでした。入力内容を残したまま、少し待ってからもう一度送信してください。",
+                     false);
+      return;
+    case carrier_sense::Outcome::TooLong:
+      sendResultPage(400, "送信できません", "送信内容が長すぎるため送信しませんでした。", false);
+      return;
+    case carrier_sense::Outcome::RadioError:
+    default:
+      sendResultPage(503, "LoRa送信に失敗しました", "入力内容を残したまま、もう一度送信してください。", false);
+      return;
   }
-
-  Serial.print(F("transmit failed: "));
-  Serial.println(transmissionState);
-  sendResultPage(503, "LoRa送信に失敗しました", "入力内容を残したまま、もう一度送信してください。", false);
 }
 
 bool initializePower() {
