@@ -178,5 +178,58 @@ class EmergencyPacketCreate(BaseModel):
     hub_received_at: datetime | None = None
 
 
+class DestinationStatus(BaseModel):
+    destination_id: str
+    configured: bool
+    state: Literal["NORMAL", "DELAYED", "DOWN", "AUTH_ERROR", "UNKNOWN"]
+    last_success_at: datetime | None = None
+    last_reachable_at: datetime | None = None
+    last_latency_ms: int | None = None
+    queue_depth: int
+    sending_count: int
+    stopped_count: int
+    oldest_pending_at: datetime | None = None
+    accepted_count: int
+    quarantined_count: int
+    quarantined_by_error_code: dict[str, int]
+    last_error_code: str | None = None
+    last_error_at: datetime | None = None
+
+
+class DestinationStatusResponse(BaseModel):
+    enabled: bool
+    generated_at: datetime
+    destinations: list[DestinationStatus]
+
+
+class DeliveryAttempt(BaseModel):
+    attempted_at: datetime
+    outcome: str
+    http_status: int | None = None
+    latency_ms: int | None = None
+    error_code: str | None = None
+
+
+class PacketDelivery(BaseModel):
+    destination_id: str
+    state: Literal["PENDING", "SENDING", "ACCEPTED", "QUARANTINED", "STOPPED"]
+    attempts: int
+    next_attempt_at: datetime
+    last_attempt_at: datetime | None = None
+    last_error_code: str | None = None
+    last_error_summary: str | None = None
+    accepted_at: datetime | None = None
+    created_at: datetime
+    history: list[DeliveryAttempt]
+
+
+class EmergencyPacketDeliveries(BaseModel):
+    emergency_packet_id: str
+    version: str
+    signature_status: SignatureStatus | None = None
+    forwardable: bool
+    deliveries: list[PacketDelivery]
+
+
 class DemoResetRequest(BaseModel):
     confirmation: str = Field(min_length=1, max_length=50)
