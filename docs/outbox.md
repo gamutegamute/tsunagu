@@ -88,7 +88,7 @@ WHERE p.signature_status = 'SIGNATURE_VALID'
 ORDER BY p.received_at;
 ```
 
-`OUTBOX_ENABLED` を `true` にする前に受理した報告も、このクエリに出ます(さかのぼって登録はしません)。
+`OUTBOX_ENABLED` を `true` にする前に受理した報告も、このクエリに出ます。自動ではさかのぼって登録しないので、`backfill` で登録します(下の「登録が欠けた報告の登録(backfill)」)。
 
 ## ワーカー
 
@@ -97,6 +97,7 @@ python -m app.outbox_worker                 # ループ
 python -m app.outbox_worker once            # 1周だけ
 python -m app.outbox_worker requeue --destination <id> --error-code <コード>
 python -m app.outbox_worker resume --destination <id>
+python -m app.outbox_worker backfill --destination <id> (--since <ISO8601> | --all) [--dry-run]
 ```
 
 1周の処理(`run_once(now)`):
@@ -139,6 +140,32 @@ python -m app.outbox_worker resume --destination <id>
 - クラウド側の鍵台帳を直したあと(例: `PACKET_AUTH_FAILED` で隔離された報告): `python -m app.outbox_worker requeue --destination <id> --error-code PACKET_AUTH_FAILED`。指定した宛先・エラーコードの `QUARANTINED` を `PENDING` に戻します
 - 宛先の鍵やURLを直したあと: `python -m app.outbox_worker resume --destination <id>`。その宛先の `STOPPED` の行を `PENDING` に戻し、送信を再開します
 - どちらも、実行内容と件数をログに残します(`Outbox requeue: destination=... error_code=... requeued=N`、`Outbox resume: destination=... resumed=N`)
+
+### 登録が欠けた報告の登録(backfill)
+
+`delivery_outbox` に行が無い報告は、あとから Outbox を有効にしても、クラウドへ届きません。次の場面で `backfill` を使います。
+
+| 場面 | 理由 |
+|---|---|
+| Outbox を後から有効にしたとき | `OUTBOX_ENABLED=false` の間や、宛先を設定する前に受理した報告は登録されていない |
+| 宛先を追加したとき | 追加する前に受理した報告には、新しい宛先の行が無い |
+| 登録の失敗を検知したとき | 登録に失敗した報告(ログ `Outbox registration failed`)は、同じ報告が再送されない限り登録されない |
+
+```sh
+# 1. 対象の件数だけを確認する(登録しない)
+python -m app.outbox_worker backfill --destination cloud-sat --since 2026-10-06T09:00:00+09:00 --dry-run
+# 2. 登録する
+python -m app.outbox_worker backfill --destination cloud-sat --since 2026-10-06T09:00:00+09:00
+```
+
+- 対象: `signature_status=SIGNATURE_VALID` の v2 の報告のうち、指定の宛先の `delivery_outbox` の行が無いもの。v1 は対象外です
+- `--since`: `hub_received_at` が指定時刻**以降**(ちょうどを含む)の報告だけを対象にします。タイムゾーン(`Z` や `+09:00`)を必ず付けてください(付けないとエラー)
+- `--all`: 時刻で絞らず、すべてを対象にします
+- `--since` と `--all` のどちらも無いときは、エラーにします。**古いデモデータを、うっかりクラウドへ送らないため**です。デモリセットの前のデータなどを送りたくないときは、`--since` で範囲を絞ってください
+- `OUTBOX_DESTINATIONS` に無い宛先を指定すると、エラーで終了します
+- 登録は `PENDING`、`next_attempt_at` は実行した時刻です。`ON CONFLICT DO NOTHING` なので冪等です(2回実行すると、2回目は0件)。既存の行(`ACCEPTED` など)は変更しません
+- ログと出力には、件数だけを出します(Packet の内容は出しません)。例: `Outbox backfill: destination=cloud-sat since=2026-10-06T09:00:00+09:00 registered=3`
+- 登録した行は、ワーカーが通常どおり緊急度順に配送します。`OUTBOX_ENABLED` が `true` でないときは、警告を出して登録だけを行います(有効にしたあとで配送されます)
 
 ## 読み取りAPI(本部のみ)
 

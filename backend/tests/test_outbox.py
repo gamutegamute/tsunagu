@@ -719,3 +719,133 @@ def test_worker_requires_key_without_revealing_values(monkeypatch):
     monkeypatch.setenv("OUTBOX_BATCH_SIZE", "0")
     with pytest.raises(OutboxConfigError, match="OUTBOX_BATCH_SIZE"):
         load_outbox_settings()
+
+
+# ---- backfill ----
+
+
+def _unique_window() -> datetime:
+    # --since は「指定時刻以降」なので、DBにある報告より後の時間帯を使って、ほかのテストの報告と重ならないようにする。
+    with get_conn() as conn:
+        latest = conn.execute("SELECT max(hub_received_at) AS latest FROM emergency_packets;").fetchone()["latest"]
+    return max(latest or utc_now(), utc_now()).replace(microsecond=0) + timedelta(days=1)
+
+
+def test_backfill_registers_only_missing_signed_v2(env, monkeypatch, caplog):
+    destination = env.add_destination()
+    base = _unique_window()
+
+    # Outboxが無効の間に受理した報告(登録されない)
+    monkeypatch.setenv("OUTBOX_ENABLED", "false")
+    missing = post_packet(make_packet(status="CRITICAL"), hub_received_at=base + timedelta(seconds=10))
+    before_window = post_packet(make_packet(), hub_received_at=base - timedelta(seconds=1))
+    v1 = client.post(
+        "/api/emergency-packets",
+        json={
+            "packet": f"v1|AIT001|12:{uuid4().int % 60:02d}|{920_000 + uuid4().int % 1000}|1|ALERT|NONE",
+            "hub_received_at": (base + timedelta(seconds=11)).isoformat(),
+        },
+    ).json()
+    assert outbox_rows(packet_id=missing["id"]) == []
+
+    # 有効にしたあとに受理し、配送済みになった報告
+    monkeypatch.setenv("OUTBOX_ENABLED", "true")
+    registered = post_packet(make_packet(), hub_received_at=base + timedelta(seconds=20))
+    run(FakeCloud(), due())
+    accepted_before = outbox_rows(packet_id=registered["id"], destination_id=destination)
+    assert accepted_before[0]["state"] == "ACCEPTED"
+
+    # --since の境界: hub_received_at が指定時刻ちょうどなら対象、1ミリ秒後からなら対象外
+    exact = base + timedelta(seconds=10)
+    assert outbox_worker.backfill(destination, since=exact, dry_run=True) == 1
+    assert outbox_worker.backfill(destination, since=exact + timedelta(milliseconds=1), dry_run=True) == 0
+
+    # dry-run は登録しない
+    caplog.set_level(logging.WARNING)
+    assert outbox_worker.backfill(destination, since=base, dry_run=True) == 1
+    assert outbox_rows(packet_id=missing["id"]) == []
+
+    now = due()
+    assert outbox_worker.backfill(destination, since=base, now=now) == 1
+    rows = outbox_rows(packet_id=missing["id"], destination_id=destination)
+    assert [(row["state"], row["attempts"], row["next_attempt_at"]) for row in rows] == [("PENDING", 0, now)]
+    assert outbox_rows(packet_id=before_window["id"]) == []
+    assert outbox_rows(packet_id=v1["id"]) == []
+    # 既存の行(ACCEPTED)は変更しない
+    assert outbox_rows(packet_id=registered["id"], destination_id=destination) == accepted_before
+
+    # 冪等: 2回目は0件
+    assert outbox_worker.backfill(destination, since=base) == 0
+    assert len(outbox_rows(packet_id=missing["id"])) == 1
+
+    # ログには件数だけ(Packetの内容は出さない)
+    assert f"destination={destination}" in caplog.text
+    assert "targets=1" in caplog.text and "registered=1" in caplog.text
+    for packet in (missing, registered, before_window):
+        assert packet["raw_packet"] not in caplog.text
+        assert packet["install_id"] not in caplog.text
+
+    # 登録した行は、ワーカーで配送される
+    cloud = FakeCloud()
+    run(cloud, now + timedelta(seconds=1))
+    assert outbox_rows(packet_id=missing["id"], destination_id=destination)[0]["state"] == "ACCEPTED"
+
+
+def test_backfill_all_targets_every_missing_signed_v2_report(env):
+    first = env.add_destination()
+    post_packet(make_packet())
+    # 宛先を後から追加した: 既存の報告には、この宛先の行が無い
+    added = env.add_destination()
+    first_rows = outbox_rows(destination_id=first)
+    with get_conn() as conn:
+        expected = conn.execute(
+            """
+            SELECT count(*) AS count FROM emergency_packets p
+            WHERE p.version = 'v2' AND p.signature_status = 'SIGNATURE_VALID'
+              AND NOT EXISTS (SELECT 1 FROM delivery_outbox o
+                              WHERE o.emergency_packet_id = p.id AND o.destination_id = %s);
+            """,
+            (added,),
+        ).fetchone()["count"]
+    assert expected >= 1
+
+    assert outbox_worker.backfill(added, all_packets=True, dry_run=True) == expected
+    assert outbox_worker.backfill(added, all_packets=True) == expected
+    assert outbox_worker.backfill(added, all_packets=True) == 0
+    with get_conn() as conn:
+        v1_rows = conn.execute(
+            """
+            SELECT count(*) AS count FROM delivery_outbox o JOIN emergency_packets p ON p.id = o.emergency_packet_id
+            WHERE o.destination_id = %s AND (p.version <> 'v2' OR p.signature_status IS DISTINCT FROM 'SIGNATURE_VALID');
+            """,
+            (added,),
+        ).fetchone()["count"]
+    assert v1_rows == 0
+    # 追加した宛先への登録で、最初の宛先の行は変わらない
+    assert first_rows == outbox_rows(destination_id=first)
+
+
+def test_backfill_argument_errors(env, capsys):
+    destination = env.add_destination()
+
+    with pytest.raises(OutboxConfigError, match="not in OUTBOX_DESTINATIONS"):
+        outbox_worker.backfill("not-configured", all_packets=True)
+    assert outbox_worker.main(["backfill", "--destination", "not-configured", "--all"]) == 2
+
+    with pytest.raises(OutboxConfigError, match="exactly one"):
+        outbox_worker.backfill(destination)
+    with pytest.raises(SystemExit) as no_scope:
+        outbox_worker.main(["backfill", "--destination", destination])
+    assert no_scope.value.code == 2
+    with pytest.raises(SystemExit) as both_scopes:
+        outbox_worker.main(["backfill", "--destination", destination, "--all", "--since", "2026-10-06T00:00:00Z"])
+    assert both_scopes.value.code == 2
+
+    # タイムゾーンの無い時刻は受け付けない
+    assert outbox_worker.main(["backfill", "--destination", destination, "--since", "2026-10-06T00:00:00"]) == 2
+    assert outbox_worker.main(["backfill", "--destination", destination, "--since", "yesterday"]) == 2
+
+    capsys.readouterr()
+    window = _unique_window().isoformat()
+    assert outbox_worker.main(["backfill", "--destination", destination, "--since", window, "--dry-run"]) == 0
+    assert capsys.readouterr().out.strip() == "targets: 0"

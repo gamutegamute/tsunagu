@@ -4,6 +4,7 @@
     python -m app.outbox_worker once                  # 1周だけ
     python -m app.outbox_worker requeue --destination <id> --error-code <コード>
     python -m app.outbox_worker resume --destination <id>
+    python -m app.outbox_worker backfill --destination <id> (--since <ISO8601> | --all) [--dry-run]
 
 衛星回線のような細い回線を想定し、宛先ごとに1件ずつ(同時送信なし)送る。
 宛先のGateway Keyはログ・DBに出さない。宛先のURLはログでは redact_url() で伏せる。
@@ -445,6 +446,80 @@ def resume(destination_id: str, now: datetime | None = None) -> int:
     return count
 
 
+_BACKFILL_TARGETS = """
+    FROM emergency_packets p
+    WHERE p.version = 'v2'
+      AND p.signature_status = 'SIGNATURE_VALID'
+      AND (%(since)s::timestamptz IS NULL OR p.hub_received_at >= %(since)s::timestamptz)
+      AND NOT EXISTS (
+        SELECT 1 FROM delivery_outbox o
+        WHERE o.emergency_packet_id = p.id AND o.destination_id = %(destination_id)s
+      )
+"""
+
+
+def parse_since(value: str) -> datetime:
+    """--since の値。タイムゾーンの無い時刻は、解釈がずれるので受け付けない。"""
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise OutboxConfigError("--since must be an ISO 8601 time with a timezone (e.g. 2026-10-06T12:00:00+09:00)") from None
+    if parsed.tzinfo is None:
+        raise OutboxConfigError("--since must include a timezone (e.g. Z or +09:00)")
+    return parsed
+
+
+def backfill(
+    destination_id: str,
+    *,
+    since: datetime | None = None,
+    all_packets: bool = False,
+    dry_run: bool = False,
+    now: datetime | None = None,
+) -> int:
+    """登録が欠けている報告を、指定の宛先の delivery_outbox に PENDING で登録する。
+
+    対象は signature_status=SIGNATURE_VALID の v2 の報告のうち、その宛先の行が無いもの。
+    Outboxが無効だった間や、宛先を追加する前に受理した報告、登録に失敗した報告を拾うために使う。
+    古いデモデータを誤って送らないよう、--since か --all のどちらかを必須にする。
+    既にある行(ACCEPTED など)は変更しない(ON CONFLICT DO NOTHING)。2回目の実行は0件になる。
+    戻り値は、dry_run なら対象の件数、それ以外は登録した件数。ログには件数だけを出す。
+    """
+    if (since is None) == (not all_packets):
+        raise OutboxConfigError("backfill requires exactly one of --since or --all")
+    settings = load_outbox_settings()
+    if destination_id not in {destination.id for destination in settings.destinations}:
+        raise OutboxConfigError(f"destination is not in OUTBOX_DESTINATIONS: {destination_id}")
+    if not settings.enabled:
+        logger.warning("Outbox backfill: OUTBOX_ENABLED is not true; registered rows are sent after it is enabled")
+
+    now = now or utc_now()
+    params = {"since": since, "destination_id": destination_id, "now": now}
+    scope = "all" if all_packets else f"since={since.isoformat()}"
+    with get_conn() as conn:
+        if dry_run:
+            count = conn.execute(f"SELECT count(*) AS count {_BACKFILL_TARGETS};", params).fetchone()["count"]
+            conn.rollback()
+            logger.warning("Outbox backfill (dry run): destination=%s %s targets=%d", destination_id, scope, count)
+            return count
+        count = len(
+            conn.execute(
+                f"""
+                INSERT INTO delivery_outbox (id, emergency_packet_id, destination_id, state, next_attempt_at)
+                SELECT 'OUT-' || replace(gen_random_uuid()::text, '-', ''), p.id, %(destination_id)s,
+                       'PENDING', %(now)s
+                {_BACKFILL_TARGETS}
+                ON CONFLICT (emergency_packet_id, destination_id) DO NOTHING
+                RETURNING id;
+                """,
+                params,
+            ).fetchall()
+        )
+        conn.commit()
+    logger.warning("Outbox backfill: destination=%s %s registered=%d", destination_id, scope, count)
+    return count
+
+
 def run_forever() -> None:
     settings = load_outbox_settings(require_keys=True)
     if not settings.active:
@@ -471,6 +546,14 @@ def main(argv: list[str] | None = None) -> int:
     requeue_parser.add_argument("--error-code", required=True)
     resume_parser = subcommands.add_parser("resume", help="resume a STOPPED destination")
     resume_parser.add_argument("--destination", required=True)
+    backfill_parser = subcommands.add_parser(
+        "backfill", help="register signed v2 reports that have no delivery row for a destination"
+    )
+    backfill_parser.add_argument("--destination", required=True)
+    scope = backfill_parser.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--since", help="only reports with hub_received_at at or after this ISO 8601 time")
+    scope.add_argument("--all", action="store_true", help="all reports (no time limit)")
+    backfill_parser.add_argument("--dry-run", action="store_true", help="only count the targets")
     args = parser.parse_args(argv)
 
     try:
@@ -478,6 +561,14 @@ def main(argv: list[str] | None = None) -> int:
             requeue(args.destination, args.error_code)
         elif args.command == "resume":
             resume(args.destination)
+        elif args.command == "backfill":
+            count = backfill(
+                args.destination,
+                since=parse_since(args.since) if args.since else None,
+                all_packets=args.all,
+                dry_run=args.dry_run,
+            )
+            print(f"{'targets' if args.dry_run else 'registered'}: {count}")
         elif args.command == "once":
             summary = run_once()
             logger.info("Outbox run: %s", summary)
