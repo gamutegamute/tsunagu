@@ -410,10 +410,13 @@ def test_v1_packet_is_accepted_as_unsigned_when_enabled():
 def test_keys_do_not_appear_in_logs_or_responses(caplog):
     caplog.set_level(logging.DEBUG)
     install_id = new_install_id()
+    # 1件目と2件目は同じ報告の再送なので、reported_at を1つに固定する。
+    # 別々に現在時刻から作ると、その間に秒が切り替わったときに内容が変わり、409 になってしまう。
+    reported_at = int(datetime.now(timezone.utc).timestamp())
     responses = [
-        post_packet(make_packet(install_id=install_id)),
-        post_packet(make_packet(install_id=install_id)),
-        post_packet(make_packet(install_id=install_id, people_count=1)),
+        post_packet(make_packet(install_id=install_id, reported_at=reported_at)),
+        post_packet(make_packet(install_id=install_id, reported_at=reported_at)),
+        post_packet(make_packet(install_id=install_id, reported_at=reported_at, people_count=1)),
         post_packet(make_packet(install_id=install_id, sequence="00000001", key=TB002_KEY)),
         post_packet(make_packet(device_id="TB003", key=TB003_KEY)),
     ]
