@@ -998,7 +998,9 @@ def _create_emergency_packet_v2(raw: str, hub_received_at: datetime) -> dict:
     with get_conn() as conn:
         shelter = conn.execute("SELECT id FROM shelters WHERE id = %s;", (packet.shelter_code,)).fetchone()
         shelter_id = shelter["id"] if shelter else None
-        # 同じキーが同時に来ても、一意制約で片方だけが入る(もう片方は既存行の確認へ進む)。
+        # 同じキーが同時に来ても、片方だけが入る(もう片方は既存行の確認へ進む)。
+        # id は重複判定キーから作るので、同時に来ると主キー(id)の衝突が先に起きることがある。
+        # 対象を指定しない ON CONFLICT DO NOTHING で、主キーと (device_id, install_id, sequence) の両方の衝突を吸収する。
         row = conn.execute(
             """
             INSERT INTO emergency_packets (
@@ -1009,7 +1011,7 @@ def _create_emergency_packet_v2(raw: str, hub_received_at: datetime) -> dict:
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, 'SIGNATURE_VALID')
-            ON CONFLICT ON CONSTRAINT emergency_packets_device_install_sequence_key DO NOTHING
+            ON CONFLICT DO NOTHING
             RETURNING *;
             """,
             (
@@ -1042,6 +1044,18 @@ def _create_emergency_packet_v2(raw: str, hub_received_at: datetime) -> dict:
                 """,
                 (packet.device_id, packet.install_id, packet.sequence),
             ).fetchone()
+            if existing is None:
+                # 衝突を吸収したのに既存の行が見つからない(id だけが別の行と重なった、など)。黙って捨てない。
+                conn.rollback()
+                logger.error(
+                    "Emergency Packet insert conflicted but no existing row was found: "
+                    "packet_id=%s device_id=%s install_id=%s sequence=%s",
+                    packet_id,
+                    packet.device_id,
+                    packet.install_id,
+                    packet.sequence,
+                )
+                raise HTTPException(status_code=500, detail="Emergency Packet could not be stored")
             if existing["raw_packet"] == packet.raw_packet:
                 # 同一キー・同一内容は再送。v1の再送と同じく既存の行を201で返す。
                 conn.commit()

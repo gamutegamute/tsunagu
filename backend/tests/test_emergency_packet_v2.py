@@ -493,3 +493,99 @@ def test_key_that_is_not_32_bytes_is_rejected_at_runtime_without_leaking(monkeyp
     assert key_hex not in response.text
     assert "Emergency Packet device key ledger is misconfigured" in caplog.text
     assert key_hex not in caplog.text
+
+
+# ---- 同時再送(主キーの衝突) ----
+
+CONCURRENT_THREADS = 8
+CONCURRENT_ROUNDS = 25
+
+
+def test_simultaneous_resends_return_existing_row_without_500():
+    """同じ v2 Packet を複数のスレッドから同時に送っても、すべて 201 で同じ行を返し、1件だけ保存される。"""
+    import hashlib
+    import threading
+
+    # サーバー側の例外を 500 の応答として受け取る(テストのスレッドで例外にしない)。
+    concurrent_client = TestClient(app, raise_server_exceptions=False)
+    concurrent_client.headers["X-Gateway-Key"] = "test-gateway-key"
+    install_id = new_install_id()
+    reported_at = int(datetime.now(timezone.utc).timestamp())
+    barrier = threading.Barrier(CONCURRENT_THREADS)
+    results: list[list[tuple[int, str]]] = []
+
+    for round_index in range(CONCURRENT_ROUNDS):
+        packet = make_packet(install_id=install_id, sequence=f"{round_index:08X}", reported_at=reported_at)
+        round_results: list[tuple[int, str]] = []
+        lock = threading.Lock()
+
+        def send(packet=packet, round_results=round_results, lock=lock):
+            barrier.wait(timeout=10)  # 全スレッドを同時に始める
+            response = concurrent_client.post("/api/emergency-packets", json={"packet": packet})
+            body = response.json() if response.status_code == 201 else {}
+            with lock:
+                round_results.append((response.status_code, body.get("id", "")))
+
+        threads = [threading.Thread(target=send) for _ in range(CONCURRENT_THREADS)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+        results.append(round_results)
+
+    statuses = [status for round_results in results for status, _ in round_results]
+    assert statuses.count(500) == 0
+    assert set(statuses) == {201}
+    for round_index, round_results in enumerate(results):
+        dedup_key = f"v2|TB001|{install_id}|{round_index:08X}"
+        expected_id = f"EP-{hashlib.sha256(dedup_key.encode()).hexdigest()[:16]}"
+        assert {packet_id for _, packet_id in round_results} == {expected_id}
+
+    rows = packets_for(install_id)
+    assert len(rows) == CONCURRENT_ROUNDS
+    with get_conn() as conn:
+        observation_count = conn.execute(
+            "SELECT count(*) AS count FROM observations WHERE client_event_id = ANY(%s);",
+            ([f"LORA-{row['id']}" for row in rows],),
+        ).fetchone()["count"]
+    # 余分な観測が無い(1件の報告に1件の観測)
+    assert observation_count == CONCURRENT_ROUNDS
+    assert len(observations_for(install_id)) == CONCURRENT_ROUNDS
+
+
+def test_conflict_without_existing_row_is_500_and_logged(monkeypatch, caplog):
+    """衝突を吸収したのに既存の行が見つからないときは、黙って捨てずに 500 にしてログを残す。"""
+    import hashlib
+
+    # テストの準備で alembic の fileConfig が app.main のロガーを無効にするので、このテストの間だけ有効にする。
+    monkeypatch.setattr(logging.getLogger("app.main"), "disabled", False)
+    caplog.set_level(logging.DEBUG)
+    error_client = TestClient(app, raise_server_exceptions=False)
+    error_client.headers["X-Gateway-Key"] = "test-gateway-key"
+    install_id = new_install_id()
+    packet = make_packet(install_id=install_id, sequence="0000ABCD")
+    packet_id = f"EP-{hashlib.sha256(f'v2|TB001|{install_id}|0000ABCD'.encode()).hexdigest()[:16]}"
+    # 同じ id の、別の行(重複判定キーは NULL)を先に入れて、id だけが重なる状態を作る。
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO emergency_packets (id, version, shelter_code, packet_time, people_count, water_stock,
+                                           status, request_code, raw_packet)
+            VALUES (%s, 'v1', 'AIT001', '00:00', 0, 0, 'NORMAL', 'NONE', 'placeholder-row');
+            """,
+            (packet_id,),
+        )
+        conn.commit()
+    observations_before = len(observations_for(install_id))
+
+    response = error_client.post("/api/emergency-packets", json={"packet": packet})
+
+    assert response.status_code == 500
+    assert packets_for(install_id) == []
+    assert len(observations_for(install_id)) == observations_before
+    assert "insert conflicted but no existing row was found" in caplog.text
+    assert f"packet_id={packet_id}" in caplog.text
+    # ログと応答に、鍵や本文(raw packet)は出さない
+    for text in (caplog.text, response.text):
+        assert packet not in text
+        assert TB001_KEY.hex() not in text
