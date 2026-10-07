@@ -18,7 +18,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from re import fullmatch
 
-MIN_KEY_BYTES = 16
+# 鍵は機器ごとの32バイトの乱数(16進で64文字)。短くても長くてもエラーにする。
+KEY_BYTES = 32
 
 
 class PacketKeyConfigError(RuntimeError):
@@ -85,8 +86,10 @@ def _parse_ledger(source: str) -> dict[str, dict[str, bytes]]:
             if not isinstance(key_hex, str) or not fullmatch(r"(?:[0-9a-fA-F]{2})+", key_hex):
                 raise PacketKeyConfigError(f"Key {device_id}/{key_id} must be a hex string")
             key = bytes.fromhex(key_hex)
-            if len(key) < MIN_KEY_BYTES:
-                raise PacketKeyConfigError(f"Key {device_id}/{key_id} must be at least {MIN_KEY_BYTES} bytes")
+            if len(key) != KEY_BYTES:
+                raise PacketKeyConfigError(
+                    f"Key {device_id}/{key_id} must be exactly {KEY_BYTES} bytes ({KEY_BYTES * 2} hex characters)"
+                )
             ledger[device_id][key_id] = key
     return ledger
 

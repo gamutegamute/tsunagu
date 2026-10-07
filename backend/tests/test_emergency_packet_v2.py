@@ -15,7 +15,9 @@ from fastapi.testclient import TestClient
 import app.main as main_module
 from app.db import get_conn
 from app.emergency_packet import compute_packet_hmac
+from app.config import validate_runtime_settings
 from app.main import app
+from app.packet_keys import PacketKeyConfigError, load_device_key_registry
 
 # テスト専用のダミー鍵(32バイト)。
 TB001_KEY = bytes(range(0, 32))
@@ -439,3 +441,52 @@ def test_misconfigured_key_ledger_does_not_leak_key(monkeypatch, caplog):
     assert response.status_code == 503
     assert broken_key not in response.text
     assert broken_key not in caplog.text
+
+
+# ---- 鍵の長さ(機器ごとの32バイトの乱数鍵) ----
+
+
+def _ledger_with_key(length: int) -> tuple[str, str]:
+    # テスト専用のダミー鍵。長さだけを変える。
+    key_hex = bytes((100 + index) % 256 for index in range(length)).hex()
+    return json.dumps({"TB001": {"01": key_hex}}), key_hex
+
+
+def test_32_byte_key_is_accepted(monkeypatch):
+    ledger, key_hex = _ledger_with_key(32)
+    monkeypatch.setenv("PACKET_DEVICE_KEYS", ledger)
+
+    validate_runtime_settings()
+    assert load_device_key_registry().lookup("TB001", "01") == bytes.fromhex(key_hex)
+
+
+@pytest.mark.parametrize("length", [16, 31, 33])
+def test_key_that_is_not_32_bytes_fails_at_startup(monkeypatch, caplog, length):
+    ledger, key_hex = _ledger_with_key(length)
+    monkeypatch.setenv("PACKET_DEVICE_KEYS", ledger)
+    caplog.set_level(logging.DEBUG)
+
+    with pytest.raises(PacketKeyConfigError) as excinfo:
+        validate_runtime_settings()
+
+    message = str(excinfo.value)
+    assert message == "Key TB001/01 must be exactly 32 bytes (64 hex characters)"
+    assert key_hex not in message
+    assert key_hex not in caplog.text
+
+
+@pytest.mark.parametrize("length", [16, 31, 33])
+def test_key_that_is_not_32_bytes_is_rejected_at_runtime_without_leaking(monkeypatch, caplog, length):
+    ledger, key_hex = _ledger_with_key(length)
+    monkeypatch.setenv("PACKET_DEVICE_KEYS", ledger)
+    # テストの準備で alembic の fileConfig が app.main のロガーを無効にするので、このテストの間だけ有効にする
+    # (空のログを調べるだけのテストにしないため)。
+    monkeypatch.setattr(logging.getLogger("app.main"), "disabled", False)
+    caplog.set_level(logging.DEBUG)
+
+    response = post_packet(make_packet(key=bytes.fromhex(key_hex)))
+
+    assert response.status_code == 503
+    assert key_hex not in response.text
+    assert "Emergency Packet device key ledger is misconfigured" in caplog.text
+    assert key_hex not in caplog.text

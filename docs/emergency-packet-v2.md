@@ -72,7 +72,7 @@ printf '%s' 'v2|TB001|01|A1B2C3D4E5F60718|0000002A|1791234567|AIT001|170|18|WARN
 | `PACKET_DEVICE_KEYS_FILE` | 同じ形式のJSONファイル(秘密情報ファイル)のパス。`PACKET_DEVICE_KEYS` と同時には指定できない |
 | `PACKET_DISABLED_DEVICES` | 無効化する `device_id` のカンマ区切り |
 
-- 鍵は16進で16バイト以上。台帳の形式が不正な場合、起動時(`validate_runtime_settings`)にエラーになります。実行中に不正になった場合、v2 Packet は 503 になります
+- 鍵は32バイト固定(16進で64文字)。台帳の形式が不正な場合(長さが32バイトでない場合を含む)、起動時(`validate_runtime_settings`)にエラーになります。実行中に不正になった場合、v2 Packet は 503 になります
 - 鍵の値は、ログ・レスポンス・例外メッセージに出しません
 - 端末を無効化すると、その端末のPacketは 403 になり、監査ログの理由が `DEVICE_DISABLED` になります(台帳から消した場合は `UNKNOWN_DEVICE`)
 
