@@ -24,8 +24,9 @@ constexpr char KEY_WIFI_PASS[] = "wifi_pass";
 constexpr size_t DEVICE_ID_LENGTH = 5;
 constexpr size_t KEY_ID_LENGTH = 2;
 constexpr size_t INSTALL_ID_LENGTH = 16;
-constexpr size_t MIN_HMAC_KEY_BYTES = 16;
-constexpr size_t MAX_HMAC_KEY_BYTES = 64;
+// 鍵は機器ごとの32バイトの乱数(16進で64文字)。サーバーの端末台帳も32バイト以外をエラーにするので、
+// 長さの違う鍵は保存も使用もしない。
+constexpr size_t HMAC_KEY_BYTES = 32;
 constexpr size_t MIN_SHELTER_CODE_LENGTH = 3;
 constexpr size_t MAX_SHELTER_CODE_LENGTH = 12;
 constexpr size_t MIN_WIFI_PASS_LENGTH = 8;
@@ -36,7 +37,7 @@ constexpr uint32_t SEQUENCE_EXHAUSTED = 0xFFFFFFFFUL;
 struct Settings {
   char deviceId[DEVICE_ID_LENGTH + 1] = "";
   char keyId[KEY_ID_LENGTH + 1] = "";
-  uint8_t hmacKey[MAX_HMAC_KEY_BYTES] = {};
+  uint8_t hmacKey[HMAC_KEY_BYTES] = {};
   size_t hmacKeyLength = 0;
   char installId[INSTALL_ID_LENGTH + 1] = "";
   uint32_t nextSequence = 0;
@@ -123,27 +124,43 @@ inline int hexNibble(char c) {
   return -1;
 }
 
-// 鍵の16進文字列をバイト列にする。大文字・小文字のどちらも受け付ける。
+// 鍵の16進文字列(64文字 = 32バイト)をバイト列にする。大文字・小文字のどちらも受け付ける。
 inline bool parseHmacKeyHex(const char *hex, uint8_t *out, size_t &outLength) {
   const size_t hexLength = strlen(hex);
-  if (hexLength % 2 != 0) {
+  if (hexLength != HMAC_KEY_BYTES * 2) {
     return false;
   }
-  const size_t byteLength = hexLength / 2;
-  if (byteLength < MIN_HMAC_KEY_BYTES || byteLength > MAX_HMAC_KEY_BYTES) {
-    return false;
-  }
+  const size_t byteLength = HMAC_KEY_BYTES;
   for (size_t i = 0; i < byteLength; ++i) {
     const int high = hexNibble(hex[i * 2]);
     const int low = hexNibble(hex[i * 2 + 1]);
     if (high < 0 || low < 0) {
-      memset(out, 0, MAX_HMAC_KEY_BYTES);
+      memset(out, 0, HMAC_KEY_BYTES);
       return false;
     }
     out[i] = static_cast<uint8_t>((high << 4) | low);
   }
   outLength = byteLength;
   return true;
+}
+
+// 鍵の状態。SHOW と起動時のログには、この状態だけを出す(長さの値や鍵の中身は出さない)。
+enum class HmacKeyState {
+  NotSet,
+  InvalidLength,  // NVS に鍵はあるが32バイトではない(旧ファームで保存した鍵など)。送信しない
+  Set,
+};
+
+inline const char *hmacKeyStateLabel(HmacKeyState state) {
+  switch (state) {
+    case HmacKeyState::Set:
+      return "set";
+    case HmacKeyState::InvalidLength:
+      return "invalid length";
+    case HmacKeyState::NotSet:
+    default:
+      return "not set";
+  }
 }
 
 class Store {
@@ -161,7 +178,11 @@ class Store {
 
   bool hasDeviceId() const { return settings_.deviceId[0] != '\0'; }
   bool hasKeyId() const { return settings_.keyId[0] != '\0'; }
-  bool hasHmacKey() const { return settings_.hmacKeyLength >= MIN_HMAC_KEY_BYTES; }
+  // 32バイトの鍵があるときだけ true。長さの違う鍵は「鍵が無い」と同じ扱いにする。
+  bool hasHmacKey() const {
+    return hmacKeyState_ == HmacKeyState::Set && settings_.hmacKeyLength == HMAC_KEY_BYTES;
+  }
+  HmacKeyState hmacKeyState() const { return hmacKeyState_; }
   bool hasInstallId() const { return settings_.installId[0] != '\0'; }
   bool hasShelterCode() const { return settings_.shelterCode[0] != '\0'; }
   bool hasWifiPass() const { return settings_.wifiPass[0] != '\0'; }
@@ -188,7 +209,7 @@ class Store {
   }
 
   bool setHmacKeyHex(const char *hex) {
-    uint8_t key[MAX_HMAC_KEY_BYTES] = {};
+    uint8_t key[HMAC_KEY_BYTES] = {};
     size_t length = 0;
     if (!parseHmacKeyHex(hex, key, length)) {
       return false;
@@ -197,6 +218,7 @@ class Store {
     if (stored) {
       memcpy(settings_.hmacKey, key, length);
       settings_.hmacKeyLength = length;
+      hmacKeyState_ = HmacKeyState::Set;
     }
     memset(key, 0, sizeof(key));
     return stored;
@@ -301,11 +323,17 @@ class Store {
     loadString(KEY_SHELTER_CODE, settings_.shelterCode, sizeof(settings_.shelterCode), isValidShelterCode);
     loadString(KEY_WIFI_PASS, settings_.wifiPass, sizeof(settings_.wifiPass), isValidWifiPass);
     settings_.hmacKeyLength = 0;
+    hmacKeyState_ = HmacKeyState::NotSet;
     if (preferences_.isKey(KEY_HMAC_KEY)) {
+      // 32バイトでない鍵(旧ファームで保存した16バイトの鍵など)は読み込まず、送信しない。
       const size_t length = preferences_.getBytesLength(KEY_HMAC_KEY);
-      if (length >= MIN_HMAC_KEY_BYTES && length <= MAX_HMAC_KEY_BYTES &&
-          preferences_.getBytes(KEY_HMAC_KEY, settings_.hmacKey, length) == length) {
-        settings_.hmacKeyLength = length;
+      if (length == HMAC_KEY_BYTES &&
+          preferences_.getBytes(KEY_HMAC_KEY, settings_.hmacKey, HMAC_KEY_BYTES) == HMAC_KEY_BYTES) {
+        settings_.hmacKeyLength = HMAC_KEY_BYTES;
+        hmacKeyState_ = HmacKeyState::Set;
+      } else {
+        memset(settings_.hmacKey, 0, sizeof(settings_.hmacKey));
+        hmacKeyState_ = HmacKeyState::InvalidLength;
       }
     }
     // sequence が読めないのに install_id がある状態は、番号の巻き戻りになり得るので送らない。
@@ -318,6 +346,7 @@ class Store {
 
   Preferences preferences_;
   Settings settings_;
+  HmacKeyState hmacKeyState_ = HmacKeyState::NotSet;
   bool ready_ = false;
 };
 

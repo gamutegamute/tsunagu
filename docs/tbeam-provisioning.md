@@ -42,7 +42,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --build-path <リポジトリ外の
 ```text
 SET device_id <英大文字・数字5文字>
 SET key_id <英大文字の16進2文字>
-SET key <鍵の16進。16〜64バイト>
+SET key <鍵の16進。32バイト固定(16進で64文字)>
 SET shelter_code <3〜12文字(英大文字・数字・_・-)>
 SET wifi_pass <8〜63文字の英数記号>
 SHOW
@@ -56,12 +56,14 @@ SHOW
 | コマンド | 内容 |
 |---|---|
 | `SET <項目> <値>` | 項目は `device_id` / `key_id` / `key` / `shelter_code` / `wifi_pass`。書式が不正なら保存しない |
-| `SHOW` | 設定を表示する。`key` と `wifi_pass` は「set / (not set)」だけを表示し、値は出さない |
+| `SHOW` | 設定を表示する。`key` は「set / invalid length / not set」、`wifi_pass` は「set / (not set)」だけを表示し、値は出さない |
 | `NEWINSTALL` | install_id を再発行し、sequence を 0 に戻す(Wi-Fi が止まっているときは、次に Wi-Fi が起動したときに作る) |
 | `HELP` | 設定手順を表示する |
 
 - 鍵とパスワードは、ファームがエコーもログ出力もしません。ただし、シリアルモニタの入力欄の履歴や、端末ソフトのログ機能には残ることがあります。設定後は、シリアルモニタを閉じる・ログを消すなどしてください
 - ソース(`device_config.h` を含む)に、鍵やパスワードのデフォルト値はありません。未設定の項目がある間は送信しません
+- 鍵は**32バイト固定(16進で64文字)**です。サーバー(バックエンド)も32バイト以外の鍵をエラーにします。32バイト以外の鍵は `SET key` で保存しません
+- NVS に保存済みの鍵が32バイトでない場合(例: 16〜64バイトを受け付けていた旧ファームで、32バイト以外の鍵を保存した端末)は、「鍵が無い」のと同じ扱いで送信しません。`SHOW` と起動時のログで `key: invalid length` と表示されるので、`SET key` で32バイトの鍵を入れ直してください
 - `device_id` か `wifi_pass` が未設定の間は、Wi-Fi の AP を起動せず、シリアルに設定手順を表示します
 - `install_id` と `sequence` は `SET` では変更できません(`NEWINSTALL` だけ)
 - install_id は 64 ビットの乱数です。乱数源は `esp_random()` で、Wi-Fi(RF)を起動した後にだけ生成します(RF が動いている間はハードウェア乱数になるため)
@@ -120,6 +122,10 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --build-property "compiler.cpp.extr
 - [ ] NVS 消去後に install_id が変わる: Erase All Flash で書き込み、設定し直すと install_id が変わり、sequence が 0 から始まる
 - [ ] 受信機が v1・v2 を通す: 受信機のシリアルに、v1 と v2 の Packet が改変されずに1行ずつ出る。区切り数や長さが違うもの、制御文字を含むものは出ない
 - [ ] サーバーで受理される: 実機の Packet が API で 201 になり、`signature_status=SIGNATURE_VALID` になる
+- [ ] 鍵の長さ: 31バイト・33バイト・16バイトの鍵が、`SET key` で保存されずに `error: key must be exactly 32 bytes` で拒否される(シリアルに鍵の値が出ない)
+- [ ] 鍵の長さ: 32バイト(16進で64文字)の鍵が保存され、`SHOW` で `key: set` になる
+- [ ] 旧ファームからの更新: 旧ファームで16バイトの鍵を保存した端末に、新ファームを書き込む(Erase All Flash は Disabled)と、`SHOW` と起動時のログが `key: invalid length` になり、`ready_to_send: no` で送信しない
+- [ ] 旧ファームからの更新: その端末で、`SET key` で32バイトの鍵を入れ直すと(再起動は不要)、`key: set` になって送信でき、サーバーで受理される。再起動後も `key: set` のまま
 
 ### RadioLib / SX1276 で実機確認が必要な点
 

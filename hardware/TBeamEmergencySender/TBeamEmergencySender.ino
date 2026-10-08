@@ -170,7 +170,7 @@ void printSetupGuide() {
   Serial.println(F("[setup] Configure this sender over USB serial (115200 baud), then press RST:"));
   Serial.println(F("[setup]   SET device_id <5 chars A-Z0-9>"));
   Serial.println(F("[setup]   SET key_id <2 hex chars A-F0-9>"));
-  Serial.println(F("[setup]   SET key <hex, 16-64 bytes>      (not echoed)"));
+  Serial.println(F("[setup]   SET key <hex, exactly 32 bytes = 64 hex chars>   (not echoed)"));
   Serial.println(F("[setup]   SET shelter_code <3-12 chars A-Z0-9_->"));
   Serial.println(F("[setup]   SET wifi_pass <8-63 printable ASCII>   (not echoed)"));
   Serial.println(F("[setup]   SHOW / NEWINSTALL / HELP"));
@@ -187,8 +187,12 @@ void showSettings() {
   const device_settings::Settings &settings = settingsStore.settings();
   printSetting(F("device_id"), settingsStore.hasDeviceId(), settings.deviceId);
   printSetting(F("key_id"), settingsStore.hasKeyId(), settings.keyId);
+  // 鍵は状態だけを出す(set / invalid length / not set)。長さの値や鍵の中身は出さない。
   Serial.print(F("key: "));
-  Serial.println(settingsStore.hasHmacKey() ? F("set") : F("(not set)"));
+  Serial.println(device_settings::hmacKeyStateLabel(settingsStore.hmacKeyState()));
+  if (settingsStore.hmacKeyState() == device_settings::HmacKeyState::InvalidLength) {
+    Serial.println(F("[setup] the stored key is not 32 bytes; this sender will not transmit. Set it again with SET key"));
+  }
   Serial.print(F("install_id: "));
   Serial.println(settingsStore.hasInstallId() ? settings.installId : "(not generated yet; generated after Wi-Fi starts)");
   Serial.print(F("next_sequence: "));
@@ -237,7 +241,7 @@ void handleSetCommand(char *arguments) {
   } else if (equalsIgnoreCase(item, "key")) {
     // 鍵はエコーしない。結果だけを返す。
     Serial.println(settingsStore.setHmacKeyHex(value) ? F("key: saved")
-                                                      : F("error: key must be hex, 16-64 bytes (value not shown)"));
+                                                      : F("error: key must be exactly 32 bytes = 64 hex chars (value not shown)"));
   } else if (equalsIgnoreCase(item, "shelter_code")) {
     Serial.println(settingsStore.setShelterCode(value) ? F("shelter_code: saved")
                                                        : F("error: shelter_code must be 3-12 chars A-Z0-9_-"));
