@@ -52,7 +52,9 @@ describe("FieldReportForm", () => {
       />,
     );
 
-    expect(screen.getByText(/TSUNAGU-Emergency/)).not.toBeNull();
+    expect(screen.getByText(/名前が「TSUNAGU-」で始まるもの/)).not.toBeNull();
+    // 古いWi-Fi名(特定の端末名)を画面に出さない
+    expect(screen.queryByText(/TSUNAGU-Emergency/)).toBeNull();
     expect(screen.getByText(/別画面から報告してください/)).not.toBeNull();
     // LoRaを実際に送信するボタンはこのアプリ側には存在しない
     expect(screen.queryByRole("button", { name: /LoRa/ })).toBeNull();
