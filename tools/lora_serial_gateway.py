@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 ALLOWED_STATUSES = ("NORMAL", "WARNING", "ALERT", "CRITICAL")
@@ -295,6 +296,24 @@ class PacketQueue:
 # ---- 送信 ----
 
 
+def display_url(url: str) -> str:
+    """repr・停止理由・ログに出すAPIのURL。スキーム、ホスト、ポートだけを残す。
+
+    認証情報(userinfo)、パス、クエリ、フラグメントは出さない。
+    """
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        return "<invalid url>"
+    if not parts.scheme or not host:
+        return "<invalid url>"
+    if ":" in host:
+        host = f"[{host}]"
+    return f"{parts.scheme}://{host}" + (f":{port}" if port is not None else "")
+
+
 class _NoRedirectHandler(HTTPRedirectHandler):
     # リダイレクトは追わない。3xx はそのまま HTTPError として受け取り、設定異常として扱う。
     def redirect_request(self, *args, **kwargs):
@@ -315,7 +334,7 @@ class ApiSender:
         self._opener = build_opener(_NoRedirectHandler())
 
     def __repr__(self) -> str:
-        return f"ApiSender(api_url={self.api_url!r})"
+        return f"ApiSender(api_url={display_url(self.api_url)!r})"
 
     def post(self, packet: str, hub_received_at: str) -> ApiResponse:
         """APIの形(raw packet と hub_received_at)で送る。通信できなかったときは例外(OSError など)。"""
@@ -498,7 +517,7 @@ class Gateway:
                     result.interrupted = "server_errors"
                     return result
             else:
-                self.stopped_reason = f"{reason_code} from {self.sender.api_url}"
+                self.stopped_reason = f"{reason_code} from {display_url(self.sender.api_url)}"
                 result.stopped = True
                 self._log_stopped(now)
                 return result

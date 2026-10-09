@@ -619,3 +619,49 @@ def test_legacy_quarantine_migration_failure_leaves_file_unchanged(tmp_path):
         ).fetchone()[0] == 0
     finally:
         check.close()
+
+
+# ---- APIのURLの秘密 ----
+
+
+URL_USER = "gw-user-secret"
+URL_PASSWORD = "gw-password-secret"
+URL_TOKEN = "query-token-secret"
+URL_FRAGMENT = "fragment-secret"
+
+
+def test_api_url_credentials_and_query_do_not_leak(tmp_path, api, capsys):
+    port = api.server.server_address[1]
+    expected = f"http://127.0.0.1:{port}"
+
+    # クエリとフラグメント: 実際にテスト用のサーバーへ送り、401 で停止させる
+    query_url = f"{expected}/api/emergency-packets?token={URL_TOKEN}#{URL_FRAGMENT}"
+    api.responder = _respond(401, {"detail": "Invalid gateway API key"})
+    gw = make_gateway(tmp_path, query_url)
+    gw.accept_line(CRITICAL_V1, now=NOW)
+    assert api.requests[0]["path"] == f"/api/emergency-packets?token={URL_TOKEN}"  # 送信先は変えない
+
+    # 認証情報(userinfo): urllib はホストの一部として扱うので、応答だけを差し替えて停止させる
+    class UnauthorizedSender(gateway.ApiSender):
+        def post(self, packet, hub_received_at):
+            return gateway.ApiResponse(401, b"{}")
+
+    userinfo_url = f"http://{URL_USER}:{URL_PASSWORD}@127.0.0.1:{port}/api/emergency-packets?token={URL_TOKEN}#{URL_FRAGMENT}"
+    userinfo_gw = gateway.Gateway(
+        gateway.PacketQueue(tmp_path / "userinfo.db"), UnauthorizedSender(userinfo_url, API_KEY), rng=random.Random(0)
+    )
+    userinfo_gw.accept_line(CRITICAL_V1, now=NOW)
+
+    texts = {
+        "repr": repr(gw.sender),
+        "stopped_reason": gw.stopped_reason,
+        "userinfo repr": repr(userinfo_gw.sender),
+        "userinfo stopped_reason": userinfo_gw.stopped_reason,
+        "log": capsys.readouterr().out,
+    }
+    for name, text in texts.items():
+        for secret in (URL_USER, URL_PASSWORD, URL_TOKEN, URL_FRAGMENT, "/api/emergency-packets"):
+            assert secret not in text, f"{secret} in {name}"
+    assert gw.stopped_reason == userinfo_gw.stopped_reason == f"HTTP_401 from {expected}"
+    assert texts["userinfo repr"] == f"ApiSender(api_url='{expected}')"
+    assert f"sending is STOPPED (configuration error: HTTP_401 from {expected})" in texts["log"]

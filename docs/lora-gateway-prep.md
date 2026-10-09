@@ -195,6 +195,7 @@ TSUNAGU_GATEWAY_API_KEY is required
 - 以前は、4xx の Packet がキューに残り、5秒ごとに再送され続けていました。いまは 400・422・403(`PACKET_AUTH_FAILED`)・409 を隔離するので、再送され続けません
 - 送信の停止は、ログに原因(`HTTP_401` など)とともに出します。同じログは5分ごとに間引きます。**再開は、ゲートウェイの再起動のとき**です
 - ログには、Packet の内容(v2 の最後の hmac 欄を含む)と Gateway Key を出しません。Packet は `id` の先頭、版、`status`、長さだけで示します
+- APIのURLは、停止理由・ログ・`repr` では、スキーム・ホスト・ポートだけを出します(例: `HTTP_401 from http://localhost:8000`)。URL に含めた認証情報(`user:password@`)、パス、クエリ、フラグメントは出しません。送信先そのものは変えません
 
 ### 隔離テーブル(`quarantined_packets`)
 
