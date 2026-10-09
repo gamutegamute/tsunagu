@@ -148,6 +148,23 @@ curl -s -X POST "http://127.0.0.1:8093/sim/down?seconds=120"
 
 止めた宛先の行は、ワーカーで `PENDING`(バックオフ)のまま保持され、もう片方の宛先は配送が進みます。
 
+## CI で確認していること
+
+`.github/workflows/ci.yml` の `Backend tests` ジョブで、`pytest tools` を実行しています(`tools/test_link_simulator.py` と `tools/test_lora_serial_gateway.py`)。テストは、127.0.0.1 で動くテスト用の上流サーバーを相手にし、時間と乱数を注入しているので、実際の回線や外部のサーバーは使いません。
+
+| 確認していること | テスト(`tools/test_link_simulator.py`) |
+|---|---|
+| 正常な中継 | `test_relays_method_path_body_and_allowed_headers`、`test_relays_other_methods`、`test_upstream_base_path_is_prefixed`、`test_destination_is_fixed_to_upstream` |
+| 切断状態 | `test_drop_request_reset`、`test_drop_response_reaches_upstream_but_not_client`、`test_manual_down_and_up`、`test_down_with_hang_mode` |
+| 遅延とタイムアウト | `test_delay_and_bandwidth_time_are_computed`、`test_drop_request_hang_causes_client_timeout`、`test_hang_ends_at_hang_seconds` |
+| HTTP エラーの返却 | `test_upstream_error_status_and_body_are_returned_unchanged`(404・429・500・503 の状態コードと本文をそのまま返す)、`test_redirect_is_returned_not_followed`、`test_upstream_unreachable_returns_502` |
+| 復旧後の再送 | `test_down_for_seconds_recovers_automatically`、`test_outage_preset_starts_down_and_recovers`、`test_config_change_applies_to_next_request` |
+| 同時リクエスト時の状態管理 | `test_concurrent_requests_keep_stats_consistent`(8スレッド×10件で統計が一致)、`test_concurrent_requests_while_toggling_down_and_up`(down と up を切り替えながら同時に送っても、例外・ハングが無く、統計が一致) |
+| URL の認証情報・クエリ・フラグメントの拒否 | `test_upstream_is_required_and_validated`(認証情報・クエリ)、`test_upstream_with_fragment_is_rejected`(フラグメント)。いずれもエラーメッセージに値を出さない |
+
+- 各テストには30秒の上限があり、超えたらスタックを出して終了します(待ち続けて CI を止めないため)
+- Linux(`python:3.12` のコンテナ)と Windows で、`pytest tools` を10回ずつ続けて実行し、すべて通ることを確認しています。macOS では確認していません
+
 ## 対象外
 
 本部画面、Outboxの変更、docker-compose へのサービスの追加(統合テストのPRで行う)、実衛星、パケットの中身の改変。

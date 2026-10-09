@@ -53,8 +53,8 @@ jobs:
         working-directory: backend
         run: pytest tests
 
-      - name: Test LoRa gateway queue
-        run: pytest tools/test_lora_serial_gateway.py
+      - name: Test tools (LoRa gateway queue, link simulator)
+        run: pytest tools
 
   frontend-build:
     name: Frontend build

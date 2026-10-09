@@ -296,6 +296,32 @@ def test_body_size_limit(running, upstream):
     assert instance.simulator.stats()["too_large"] == 20
 
 
+@pytest.mark.parametrize(
+    ("status", "body", "headers"),
+    [
+        (404, b'{"detail":"Not Found"}', {"Content-Type": "application/json"}),
+        (429, b'{"detail":"slow down"}', {"Content-Type": "application/json", "Retry-After": "7"}),
+        (500, b"internal error", {"Content-Type": "text/plain"}),
+        (503, b'{"detail":"unavailable"}', {"Content-Type": "application/json"}),
+    ],
+    ids=["404", "429", "500", "503"],
+)
+def test_upstream_error_status_and_body_are_returned_unchanged(running, upstream, status, body, headers):
+    upstream.responder = lambda m, p, h, b: (status, headers, body)
+    instance = running()
+
+    got_status, got_headers, got_body = proxy_request(instance, body=SECRET_BODY,
+                                                      headers={"Content-Type": "application/json"})
+
+    assert got_status == status
+    assert got_body == body
+    for name, value in headers.items():
+        assert got_headers[name] == value
+    assert len(upstream.requests) == 1
+    stats = instance.simulator.stats()
+    assert stats["forwarded"] == 1 and stats["upstream_error"] == 0
+
+
 def test_upstream_unreachable_returns_502(running):
     closed = ThreadingHTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
     url = f"http://127.0.0.1:{closed.server_address[1]}"
@@ -531,6 +557,84 @@ def test_shutdown_is_idempotent_and_bounded(running):
     assert time.monotonic() - started < 3
 
 
+CONCURRENT_THREADS = 8
+REQUESTS_PER_THREAD = 10
+
+
+def _send_concurrently(instance, barrier: threading.Barrier, outcomes: list, lock: threading.Lock) -> None:
+    barrier.wait(timeout=10)  # 全スレッドを同時に始める
+    for _ in range(REQUESTS_PER_THREAD):
+        try:
+            status, _, _ = proxy_request(instance, body=b"{}", headers={"Content-Type": "application/json"},
+                                         timeout=5)
+            result = status
+        except (ConnectionError, http.client.HTTPException, TimeoutError) as exc:
+            result = type(exc).__name__
+        with lock:
+            outcomes.append(result)
+
+
+def test_concurrent_requests_keep_stats_consistent(running, upstream):
+    instance = running()
+    outcomes: list = []
+    lock = threading.Lock()
+    barrier = threading.Barrier(CONCURRENT_THREADS)
+    threads = [threading.Thread(target=_send_concurrently, args=(instance, barrier, outcomes, lock), daemon=True)
+               for _ in range(CONCURRENT_THREADS)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+
+    total = CONCURRENT_THREADS * REQUESTS_PER_THREAD
+    assert not any(thread.is_alive() for thread in threads)
+    assert len(outcomes) == total
+    assert outcomes.count(201) == total
+    stats = instance.simulator.stats()
+    assert stats["forwarded"] == total
+    assert len(upstream.requests) == total
+
+
+def test_concurrent_requests_while_toggling_down_and_up(running, upstream):
+    instance = running(sim.SimConfig(drop_mode="reset"))
+    outcomes: list = []
+    lock = threading.Lock()
+    barrier = threading.Barrier(CONCURRENT_THREADS + 1)
+    errors: list = []
+
+    def toggle():
+        barrier.wait(timeout=10)
+        try:
+            for index in range(30):
+                path = "/sim/down" if index % 2 == 0 else "/sim/up"
+                status, _ = control(instance, "POST", path)
+                assert status == 200
+            control(instance, "POST", "/sim/up")
+        except Exception as exc:  # noqa: BLE001 - 例外が出たことを、あとで確かめる
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_send_concurrently, args=(instance, barrier, outcomes, lock), daemon=True)
+               for _ in range(CONCURRENT_THREADS)]
+    threads.append(threading.Thread(target=toggle, daemon=True))
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    total = CONCURRENT_THREADS * REQUESTS_PER_THREAD
+    # ハングしない・例外で落ちない
+    assert not any(thread.is_alive() for thread in threads)
+    assert errors == []
+    assert len(outcomes) == total
+    # 各リクエストは「転送された(201)」か「down で切られた(接続エラー)」のどちらか
+    assert set(outcomes) <= {201, "ConnectionResetError", "ConnectionAbortedError", "RemoteDisconnected",
+                             "ConnectionError", "BadStatusLine"}
+    stats = instance.simulator.stats()
+    assert stats["forwarded"] + stats["down_rejected"] == total
+    assert stats["forwarded"] == outcomes.count(201) == len(upstream.requests)
+    assert control(instance, "GET", "/sim/config")[1]["down"] is False
+
+
 def test_non_loopback_listen_warns(upstream, logs):
     warnings = []
     simulator = sim.LinkSimulator(sim.SimConfig(), log=logs.append)
@@ -548,6 +652,14 @@ def test_upstream_is_required_and_validated(capsys):
         assert sim.main(["--upstream", url, "--listen", "127.0.0.1:0", "--control", "127.0.0.1:0"]) == 2
     err = capsys.readouterr().err
     assert "pw-secret" not in err and "q-secret" not in err
+
+
+@pytest.mark.parametrize("url", ["https://example.invalid/base#frag-secret", "https://example.invalid#frag-secret"])
+def test_upstream_with_fragment_is_rejected(capsys, url):
+    assert sim.main(["--upstream", url, "--listen", "127.0.0.1:0", "--control", "127.0.0.1:0"]) == 2
+    err = capsys.readouterr().err
+    assert "fragment" in err
+    assert "frag-secret" not in err
 
 
 def test_config_file_is_applied_on_top_of_preset(tmp_path):
