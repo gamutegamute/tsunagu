@@ -665,3 +665,46 @@ def test_api_url_credentials_and_query_do_not_leak(tmp_path, api, capsys):
     assert gw.stopped_reason == userinfo_gw.stopped_reason == f"HTTP_401 from {expected}"
     assert texts["userinfo repr"] == f"ApiSender(api_url='{expected}')"
     assert f"sending is STOPPED (configuration error: HTTP_401 from {expected})" in texts["log"]
+
+
+# ---- 手動での再投入 ----
+
+
+def test_manual_requeue_after_quarantine_still_works(tmp_path, api):
+    """docs/lora-gateway-prep.md の「隔離した Packet を再送する手順」(手順4)の SQL を、そのまま実行する。
+
+    下の SQL は、docs の手順と一致させること(docs を直したら、ここも直す)。
+    守るもの: 隔離テーブルに一意制約がある状態でも、手順どおりに隔離の行を消して再キューした Packet が、
+    一意制約に引っかからず、次の送信で送られること。
+    """
+    gw = make_gateway(tmp_path, api.url)
+    bad = v2_packet("CRITICAL", sequence="00000001")
+    api.responder = _respond(403, {"detail": {"code": "PACKET_AUTH_FAILED"}})
+    gw.accept_line(bad, now=NOW)
+    assert gw.queue.quarantined_count() == 1 and gw.queue.count() == 0
+    assert gw.accept_line(bad, now=NOW + 5) is None  # 再受信では戻らない
+
+    # docs の手順 4(REASON = "PACKET_AUTH_FAILED")
+    reason = "PACKET_AUTH_FAILED"
+    rows = gw.queue.connection.execute(
+        "SELECT id, packet, hub_received_at FROM quarantined_packets WHERE reason_code = ?", (reason,)
+    ).fetchall()
+    with gw.queue.connection:
+        for row_id, packet, hub_received_at in rows:
+            gw.queue.connection.execute(
+                "INSERT OR IGNORE INTO pending_packets"
+                " (id, packet, queued_at, status, hub_received_at, attempts, next_attempt_at)"
+                " VALUES (?, ?, ?, ?, ?, 0, 0)",
+                (gateway.packet_key(packet), packet, NOW + 10, gateway.extract_status(packet), hub_received_at),
+            )
+            gw.queue.connection.execute("DELETE FROM quarantined_packets WHERE id = ?", (row_id,))
+    assert len(rows) == 1
+    assert gw.queue.count() == 1 and gw.queue.quarantined_count() == 0
+
+    # 次の送信で送られる(受信時刻は、隔離前のまま)
+    api.responder = _respond(201, {"id": "EP-x"})
+    result = gw.flush(NOW + 20)
+    assert result.sent == 1
+    assert api.packets == [bad, bad]
+    assert api.requests[-1]["body"]["hub_received_at"] == gateway.format_hub_time(NOW)
+    assert gw.queue.count() == 0 and gw.queue.quarantined_count() == 0
