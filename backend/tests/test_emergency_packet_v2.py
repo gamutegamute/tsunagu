@@ -531,6 +531,9 @@ def test_simultaneous_resends_return_existing_row_without_500():
             thread.start()
         for thread in threads:
             thread.join(timeout=30)
+        # Barrier が壊れたり、スレッドが終わらなかったりしたときに、黙って通らないようにする。
+        assert not any(thread.is_alive() for thread in threads)
+        assert len(round_results) == CONCURRENT_THREADS
         results.append(round_results)
 
     statuses = [status for round_results in results for status, _ in round_results]
