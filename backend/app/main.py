@@ -64,8 +64,39 @@ DEMO_RESET_CONFIRMATION = "TSUNAGUをリセット"
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     validate_runtime_settings()
+    log_packet_settings()
     seed_demo_data()
     yield
+
+
+def log_packet_settings() -> None:
+    """起動時に、Emergency Packet の受け付けの設定をログに出す(鍵の値は出さない)。
+
+    v1 を許可しているか、端末台帳の端末数(と鍵の数・無効化した端末の数)を出す。
+    台帳が空のとき(v2 はすべて 403 になる)と、本番で v1 を許可しているときは WARNING にする。
+    """
+    settings = get_settings()
+    v1_mode = "allowed" if settings.allow_v1_packets else "rejected"
+    logger.info("Emergency Packet v1: %s (ALLOW_V1_PACKETS)", v1_mode)
+    if settings.allow_v1_packets and settings.app_env == "production":
+        logger.warning(
+            "Emergency Packet v1 is allowed in production (ALLOW_V1_PACKETS=true); "
+            "unsigned v1 reports are accepted. Set it to false after all senders run v2 firmware."
+        )
+    registry = load_device_key_registry()
+    device_count = len(registry.keys)
+    key_count = sum(len(keys) for keys in registry.keys.values())
+    logger.info(
+        "Emergency Packet device ledger: devices=%d keys=%d disabled=%d",
+        device_count,
+        key_count,
+        len(registry.disabled_devices),
+    )
+    if device_count == 0:
+        logger.warning(
+            "Emergency Packet device ledger is empty; every v2 packet will be rejected with 403 PACKET_AUTH_FAILED. "
+            "Set PACKET_DEVICE_KEYS or PACKET_DEVICE_KEYS_FILE."
+        )
 
 
 app = FastAPI(title="TSUNAGU", version="0.9.0", lifespan=lifespan)

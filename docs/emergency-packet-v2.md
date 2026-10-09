@@ -75,6 +75,7 @@ printf '%s' 'v2|TB001|01|A1B2C3D4E5F60718|0000002A|1791234567|AIT001|170|18|WARN
 - 鍵は32バイト固定(16進で64文字)。台帳の形式が不正な場合(長さが32バイトでない場合を含む)、起動時(`validate_runtime_settings`)にエラーになります。実行中に不正になった場合、v2 Packet は 503 になります
 - 鍵の値は、ログ・レスポンス・例外メッセージに出しません
 - 端末を無効化すると、その端末のPacketは 403 になり、監査ログの理由が `DEVICE_DISABLED` になります(台帳から消した場合は `UNKNOWN_DEVICE`)
+- 起動時に、v1 を許可しているかと、台帳の端末数・鍵の数・無効化した端末の数をログに出します(鍵の値は出しません)。台帳が空のとき(v2 はすべて 403 になる)と、本番(`APP_ENV=production`)で v1 を許可しているときは WARNING です
 
 ## 受信処理とエラー
 
@@ -133,8 +134,58 @@ HMAC が正しくても `verification_status` は自動で `VERIFIED` にせず�
 ## v1 の切り替え(`ALLOW_V1_PACKETS`)
 
 - コード上のデフォルトは `false`。v1 は 400 + `PACKET_VERSION_DISABLED` で拒否します
-- 開発用の `docker-compose.yml` と `.env.example` では `true` です
+- 開発用の `docker-compose.yml` の既定は `true` です(`${ALLOW_V1_PACKETS:-true}`。`.env` で `false` にできます)。`.env.example` は、開発は `true`、デモと本番は `false` としています
 - `true` のときも、v1 は `signature_status=UNSIGNED_V1` として保存し、v2 の署名済みの報告とは区別します
+
+## v1からv2への移行手順と設定条件
+
+### 起動の仕方ごとの既定の挙動
+
+| 起動の仕方 | `ALLOW_V1_PACKETS` | 端末台帳 | v1 の Packet | v2 の Packet |
+|---|---|---|---|---|
+| コード上の既定(`backend/app/config.py`。環境変数なし) | `false` | 空 | 400 `PACKET_VERSION_DISABLED` | 403 `PACKET_AUTH_FAILED`(台帳が空のため) |
+| `docker compose up`(`docker-compose.yml`) | `.env` の値。無ければ `true` | `.env` の `PACKET_DEVICE_KEYS`。無ければ空 | 受理(`UNSIGNED_V1`) | 台帳に端末があれば受理。空なら 403 |
+| `uvicorn app.main:app` を直接起動 | シェルの環境変数。無ければ `false` | シェルの環境変数。無ければ空 | 無ければ 400 | 無ければ 403 |
+| Dockerfile の CMD(`docker run` でイメージを直接起動) | `-e` で渡した値。無ければ `false` | `-e` で渡した値。無ければ空 | 無ければ 400 | 無ければ 403 |
+| 本番のデプロイ設定(`.github/workflows/deploy-production.yml` → `infra/terraform/main.tf`) | **渡していない**(`false`) | **渡していない**(空) | 400 | **403** |
+
+- 起動時の検証(`validate_runtime_settings`)は、台帳の**形式**だけを確認します。台帳が空でも起動は通ります(本番でも同じ)。そのため、台帳が空のまま起動すると、v2 はすべて 403 になります。起動時のログの WARNING(`device ledger is empty`)で気付けます
+- 本番について: 現在の本番のデプロイ設定は、`ALLOW_V1_PACKETS` も端末台帳(`PACKET_DEVICE_KEYS` / `PACKET_DEVICE_KEYS_FILE`)もコンテナに渡していません。本番の運用を再開するときは、両方をデプロイ設定(Terraform のコンテナの環境変数と、鍵は SSM Parameter Store など)に足す必要があります(この変更は、まだ行っていません)
+
+### 移行の手順
+
+1. **サーバーを先に更新する**: `ALLOW_V1_PACKETS=true` と、v2 の端末の鍵を登録した端末台帳を設定して、サーバーを更新する。起動時のログで `Emergency Packet v1: allowed` と `device ledger: devices=N`(N は登録した端末数)を確認する
+2. **端末を v2 のファームに更新する**: T-Beam を v2 のファーム(PR #2)に書き込み、端末ごとに鍵を設定する(`docs/packet-key-operations.md`)。更新した端末からの報告が `signature_status = 'SIGNATURE_VALID'` で受理されることを確認する
+3. **v1 が届かなくなったことを確認する**: すべての端末を更新したあと、v1(`UNSIGNED_V1`)の件数が増えないことを、しばらく確認する
+
+```sql
+-- 直近24時間の v1(署名なし)の件数(時間ごと)。0件が続けば、v1 の端末は残っていない
+SELECT date_trunc('hour', received_at) AS hour, count(*) AS v1_reports
+FROM emergency_packets
+WHERE signature_status = 'UNSIGNED_V1' AND received_at > now() - interval '24 hours'
+GROUP BY 1 ORDER BY 1;
+
+-- まだ v1 を送っている避難所コード(v1 には端末IDが無いので、避難所コードで探す)
+SELECT shelter_code, count(*) AS v1_reports, max(received_at) AS last_received_at
+FROM emergency_packets
+WHERE signature_status = 'UNSIGNED_V1' AND received_at > now() - interval '24 hours'
+GROUP BY shelter_code ORDER BY last_received_at DESC;
+```
+
+4. **v1 を止める**: `ALLOW_V1_PACKETS=false` にして、サーバーを再起動する(環境変数なので再起動が必要)。起動時のログで `Emergency Packet v1: rejected` を確認する
+
+### デモの設定と確認
+
+- デモでは、`.env` に `ALLOW_V1_PACKETS=false` を書いてから `docker compose up` する
+- 起動時のログに `Emergency Packet v1: rejected` が出ることを確認する
+- v1 を送ると、400 `PACKET_VERSION_DISABLED` になる(`backend/tests/test_emergency_packet_v2.py` の `test_v1_packet_is_rejected_when_disabled` で確認している動き)
+
+```sh
+curl -s -X POST http://localhost:8000/api/emergency-packets \
+  -H "Content-Type: application/json" -H "X-Gateway-Key: <ローカルの Gateway Key>" \
+  -d '{"packet": "v1|AIT001|21:04|170|18|WARNING|REQ_WATER"}'
+# => {"detail":{"error":"Emergency Packet v1 is disabled","code":"PACKET_VERSION_DISABLED", ...}}
+```
 
 ## インシデント昇格に備えて保存しているもの
 

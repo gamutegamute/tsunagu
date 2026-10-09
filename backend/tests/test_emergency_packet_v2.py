@@ -589,3 +589,53 @@ def test_conflict_without_existing_row_is_500_and_logged(monkeypatch, caplog):
     for text in (caplog.text, response.text):
         assert packet not in text
         assert TB001_KEY.hex() not in text
+
+
+# ---- ログを確かめるテストの準備 ----
+
+
+def _enable_app_logs(monkeypatch, caplog):
+    # テストの準備で alembic の fileConfig が app.main のロガーを無効にするので、このテストの間だけ有効にする。
+    monkeypatch.setattr(logging.getLogger("app.main"), "disabled", False)
+    caplog.set_level(logging.DEBUG)
+
+
+# ---- 起動時のログ ----
+
+
+@pytest.mark.parametrize(
+    ("allow_v1", "app_env", "ledger", "expected_info", "expected_warnings"),
+    [
+        ("true", "development", {"TB001": {"01": TB001_KEY.hex(), "02": TB002_KEY.hex()}},
+         ["Emergency Packet v1: allowed", "devices=1 keys=2 disabled=0"], []),
+        (None, "development", {"TB001": {"01": TB001_KEY.hex()}},
+         ["Emergency Packet v1: rejected", "devices=1 keys=1"], []),
+        ("false", "development", {}, ["Emergency Packet v1: rejected", "devices=0 keys=0"],
+         ["device ledger is empty"]),
+        ("true", "production", {"TB001": {"01": TB001_KEY.hex()}}, ["Emergency Packet v1: allowed"],
+         ["v1 is allowed in production"]),
+    ],
+    ids=["dev-v1-allowed", "default-v1-rejected", "empty-ledger", "production-v1-allowed"],
+)
+def test_startup_logs_packet_settings(monkeypatch, caplog, allow_v1, app_env, ledger, expected_info, expected_warnings):
+    _enable_app_logs(monkeypatch, caplog)
+    if allow_v1 is None:
+        monkeypatch.delenv("ALLOW_V1_PACKETS", raising=False)
+    else:
+        monkeypatch.setenv("ALLOW_V1_PACKETS", allow_v1)
+    monkeypatch.setenv("APP_ENV", app_env)
+    monkeypatch.setenv("PACKET_DEVICE_KEYS", json.dumps(ledger))
+    monkeypatch.setenv("PACKET_DISABLED_DEVICES", "")
+
+    main_module.log_packet_settings()
+
+    infos = " | ".join(r.getMessage() for r in caplog.records if r.levelno == logging.INFO)
+    warnings = " | ".join(r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+    for text in expected_info:
+        assert text in infos
+    for text in expected_warnings:
+        assert text in warnings
+    if not expected_warnings:
+        assert warnings == ""
+    for key in ALL_TEST_KEYS:
+        assert key.hex() not in caplog.text
