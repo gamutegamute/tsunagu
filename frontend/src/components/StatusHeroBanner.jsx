@@ -24,7 +24,7 @@ export default function StatusHeroBanner({ networkMode, offlinePhase }) {
     <div className="status-hero offline lora-phase">
       <strong>オフラインです</strong>
       <span>
-        緊急の場合はT-Beamの非常用Wi-Fi(TSUNAGU-Emergency)に接続し、別画面から報告してください。
+        緊急の場合は、T-Beamの非常用Wi-Fi(名前が「TSUNAGU-」で始まるもの)に接続し、別画面から報告してください。
       </span>
     </div>
   );

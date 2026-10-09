@@ -20,10 +20,11 @@ import { createClientEventId } from "../utils/clientEventId.js";
  * 決定事項29: T-Beamが配信する非常用ページはこのクラウド版アプリとは完全に別サイト
  * であり、ブラウザのJavaScriptから直接LoRa送信をトリガーすることはできない。その
  * ため、このアプリ側は「オフラインと判定されてから10秒経ったら『LoRa使用可』の
- * 状態を画面に表示し、T-Beamの非常用Wi-Fi(TSUNAGU-Emergency)への案内を出す」
+ * 状態を画面に表示し、T-Beamの非常用Wi-Fi(名前が「TSUNAGU-」で始まるもの)への案内を出す」
  * ところまでを担当し、実際のLoRa送信処理・送信ボタンはここには実装しない
  * (以前実装していたsendEmergencyPacket/loraEmergencySend.jsによる送信トリガーは
- * この決定事項により削除した)。
+ * この決定事項により削除した)。Wi-Fi名はファームの版や端末によって異なるため、
+ * 画面では特定の名前を出さず、「TSUNAGU-」で始まることだけを案内する。
  *
  * Field ReportとHeadquarters Dashboardは別デバイス(現場のスマホ / 本部のPC)で
  * 開かれる前提のため、この端末のオフライン報告キューをDashboard側へ引き継ぐ
