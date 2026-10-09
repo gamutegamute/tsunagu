@@ -198,7 +198,11 @@ TSUNAGU_GATEWAY_API_KEY is required
 
 ### 隔離テーブル(`quarantined_packets`)
 
-列: `packet`(署名つきの raw packet をそのまま保存)、`hub_received_at`、`reason_code`(`detail.code` か `HTTP_<状態>`)、`http_status`、`response_summary`(応答の要約。200文字まで。Gateway Key と hmac は伏せる)、`quarantined_at`
+列: `packet`(署名つきの raw packet をそのまま保存)、`hub_received_at`、`reason_code`(`detail.code` か `HTTP_<状態>`)、`http_status`、`response_summary`(応答の要約。200文字まで。Gateway Key と hmac は伏せる)、`quarantined_at`、`packet_hash`(raw packet の SHA-256。キューの `id` と同じ作り方。一意制約つき)
+
+- 受信した Packet は、キュー(`pending_packets`)と隔離テーブルの両方で、同じキー(raw packet の SHA-256)で重複を確認します。**隔離済みの Packet を再受信しても、キューへ戻さず、再送しません**。ログに `already quarantined (not requeued)` と出ます
+- 以前の形の隔離テーブル(`packet_hash` が無い)は、起動時に、`packet_hash` を足して埋め、同じ Packet の行が複数あれば最も新しい行(`id` が最大)だけを残してから、一意制約を足します。消した件数はログに出ます(`quarantine migration: removed N duplicate rows`)
+- この移行は1つのトランザクションで行います。失敗したとき(ほかのゲートウェイが同じファイルを使っている、ファイルが壊れている、など)は、元に戻して(ファイルは変えずに)、起動を止めます。ほかのゲートウェイを止め、ファイルをバックアップして確認してから、起動し直してください
 
 ### キューのファイルの扱い(重要)
 
@@ -209,7 +213,7 @@ TSUNAGU_GATEWAY_API_KEY is required
 
 ### 隔離した Packet を再送する手順
 
-サーバー側の鍵台帳を直したあと(例: `PACKET_AUTH_FAILED` で隔離された Packet)に、隔離した Packet をキューへ戻す手順です。専用のコマンドはありません。
+サーバー側の鍵台帳を直したあと(例: `PACKET_AUTH_FAILED` で隔離された Packet)に、隔離した Packet をキューへ戻す手順です。専用のコマンドはありません。隔離テーブルに行が残っている間は、同じ Packet を再受信してもキューへ入らないので、再送したいときはこの手順で戻してください。
 
 1. ゲートウェイを止める(Ctrl + C)
 2. キューのファイルをバックアップする(例: `.tsunagu/lora_gateway_queue.db` をコピー。コピーも上の注意どおりに扱う)

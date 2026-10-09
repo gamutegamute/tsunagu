@@ -98,6 +98,11 @@ def packet_hmac_field(packet: str) -> str | None:
     return None
 
 
+def packet_key(packet: str) -> str:
+    """重複判定のキー(raw packet の SHA-256)。キューの id と隔離テーブルの packet_hash に使う。"""
+    return hashlib.sha256(packet.encode("utf-8")).hexdigest()
+
+
 def packet_label(packet_id: str, packet: str, status: str | None = None) -> str:
     """ログ用の識別情報。Packetの内容(hmac欄を含む)は出さない。"""
     version = packet.split("|", 1)[0] if packet.split("|", 1)[0] in PACKET_SHAPES else "?"
@@ -152,25 +157,74 @@ class PacketQueue:
                 reason_code TEXT NOT NULL,
                 http_status INTEGER,
                 response_summary TEXT,
-                quarantined_at REAL NOT NULL
+                quarantined_at REAL NOT NULL,
+                packet_hash TEXT
             )
             """
         )
         self.connection.commit()
+        self._migrate_quarantine(database_path)
+
+    def _migrate_quarantine(self, database_path: Path) -> None:
+        """隔離テーブルに packet_hash と、その一意制約を足す。
+
+        既存の行には packet_hash を埋め、同じ Packet の行が複数あれば、最も新しい行(id が最大)だけを残す。
+        1つのトランザクションで行い、失敗したときは元に戻して(ファイルは変えずに)起動を止める。
+        """
+        connection = self.connection
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(quarantined_packets)")}
+            if "packet_hash" not in columns:
+                connection.execute("ALTER TABLE quarantined_packets ADD COLUMN packet_hash TEXT")
+            missing = connection.execute(
+                "SELECT id, packet FROM quarantined_packets WHERE packet_hash IS NULL"
+            ).fetchall()
+            connection.executemany(
+                "UPDATE quarantined_packets SET packet_hash = ? WHERE id = ?",
+                [(packet_key(packet), row_id) for row_id, packet in missing],
+            )
+            removed = connection.execute(
+                """
+                DELETE FROM quarantined_packets
+                WHERE id NOT IN (SELECT max(id) FROM quarantined_packets GROUP BY packet_hash)
+                """
+            ).rowcount
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS quarantined_packets_packet_hash"
+                " ON quarantined_packets (packet_hash)"
+            )
+            connection.commit()
+        except sqlite3.Error as exc:
+            connection.rollback()
+            connection.close()
+            raise SystemExit(
+                f"could not add the unique constraint to quarantined_packets ({exc.__class__.__name__}: {exc}). "
+                f"The queue file was not changed: {database_path}. "
+                "Stop any other gateway using this file, back it up, and check it before restarting."
+            ) from exc
+        if removed:
+            log(f"quarantine migration: removed {removed} duplicate rows (kept the newest row per packet)")
 
     def enqueue(self, packet: str, received_at: float) -> str | None:
-        """キューへ入れて id を返す。同じ Packet が既にキューにあれば入れない(None)。"""
-        packet_id = hashlib.sha256(packet.encode("utf-8")).hexdigest()
+        """キューへ入れて id を返す。同じ Packet がキューか隔離テーブルにあれば入れない(None)。"""
+        packet_id = packet_key(packet)
         cursor = self.connection.execute(
             """
             INSERT OR IGNORE INTO pending_packets
                 (id, packet, queued_at, status, hub_received_at, attempts, next_attempt_at)
-            VALUES (?, ?, ?, ?, ?, 0, 0)
+            SELECT ?, ?, ?, ?, ?, 0, 0
+            WHERE NOT EXISTS (SELECT 1 FROM quarantined_packets WHERE packet_hash = ?)
             """,
-            (packet_id, packet, received_at, extract_status(packet), format_hub_time(received_at)),
+            (packet_id, packet, received_at, extract_status(packet), format_hub_time(received_at), packet_id),
         )
         self.connection.commit()
         return packet_id if cursor.rowcount else None
+
+    def is_quarantined(self, packet_id: str) -> bool:
+        return self.connection.execute(
+            "SELECT 1 FROM quarantined_packets WHERE packet_hash = ? LIMIT 1", (packet_id,)
+        ).fetchone() is not None
 
     def due(self, now: float) -> list[QueuedPacket]:
         """送ってよい行を、緊急度順 → hub_received_at 順 → id 順に返す。"""
@@ -218,10 +272,16 @@ class PacketQueue:
             self.connection.execute(
                 """
                 INSERT INTO quarantined_packets
-                    (packet, hub_received_at, reason_code, http_status, response_summary, quarantined_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (packet, hub_received_at, reason_code, http_status, response_summary, quarantined_at, packet_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (packet_hash) DO UPDATE SET
+                    hub_received_at = excluded.hub_received_at,
+                    reason_code = excluded.reason_code,
+                    http_status = excluded.http_status,
+                    response_summary = excluded.response_summary,
+                    quarantined_at = excluded.quarantined_at
                 """,
-                (item.packet, item.hub_received_at, reason_code, http_status, summary, now),
+                (item.packet, item.hub_received_at, reason_code, http_status, summary, now, packet_key(item.packet)),
             )
             self.connection.execute("DELETE FROM pending_packets WHERE id = ?", (item.id,))
 
@@ -373,7 +433,12 @@ class Gateway:
             return None
         packet_id = self.queue.enqueue(packet, now)
         if packet_id is None:
-            log(f"already queued: {packet_label(hashlib.sha256(packet.encode('utf-8')).hexdigest(), packet)}")
+            existing_id = packet_key(packet)
+            if self.queue.is_quarantined(existing_id):
+                # 隔離済みの Packet の再受信。再送しない(再投入は docs/lora-gateway-prep.md の手順で)。
+                log(f"already quarantined (not requeued): {packet_label(existing_id, packet)}")
+            else:
+                log(f"already queued: {packet_label(existing_id, packet)}")
         else:
             log(f"queued: {packet_label(packet_id, packet)}")
         self.flush(now)

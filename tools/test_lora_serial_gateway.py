@@ -492,3 +492,130 @@ def test_new_environment_variable_takes_priority(monkeypatch):
     monkeypatch.setenv("SHELTEROS_API_URL", "https://legacy.example")
 
     assert gateway._environment_value("TSUNAGU_API_URL", "SHELTEROS_API_URL") == "https://new.example"
+
+
+# ---- 隔離済みの Packet の重複防止 ----
+
+
+def test_quarantined_packet_is_not_requeued_when_received_again(tmp_path, api, capsys):
+    gw = make_gateway(tmp_path, api.url)
+    bad = v2_packet("CRITICAL", sequence="00000001")
+    api.responder = lambda body: (
+        (400, {"detail": {"code": "PACKET_FORMAT_INVALID"}}, {}) if body["packet"] == bad else (201, {"id": "EP-x"}, {})
+    )
+    gw.accept_line(bad, now=NOW)
+    assert gw.queue.quarantined_count() == 1
+    capsys.readouterr()
+
+    # 同じ Packet を再受信しても、キューへ入れず、送らない
+    assert gw.accept_line(bad + "\r\n", now=NOW + 10) is None
+    assert gw.queue.count() == 0
+    assert api.packets == [bad]
+    out = capsys.readouterr().out
+    assert "already quarantined (not requeued): id=" in out
+    assert HMAC not in out
+
+    # 再起動しても同じ。ほかの Packet は送る
+    gw.queue.connection.close()
+    restarted = make_gateway(tmp_path, api.url)
+    assert restarted.queue.enqueue(bad, NOW + 20) is None
+    restarted.accept_line(NORMAL_V1, now=NOW + 30)
+    assert api.packets == [bad, NORMAL_V1]
+    assert restarted.queue.quarantined_count() == 1
+
+
+def _create_legacy_quarantine(path, rows):
+    """packet_hash 列と一意制約が無い、以前の形の隔離テーブルを作る。"""
+    legacy = sqlite3.connect(path)
+    legacy.execute("CREATE TABLE pending_packets (id TEXT PRIMARY KEY, packet TEXT NOT NULL, queued_at REAL NOT NULL)")
+    legacy.execute(
+        """
+        CREATE TABLE quarantined_packets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            packet TEXT NOT NULL,
+            hub_received_at TEXT,
+            reason_code TEXT NOT NULL,
+            http_status INTEGER,
+            response_summary TEXT,
+            quarantined_at REAL NOT NULL
+        )
+        """
+    )
+    legacy.executemany(
+        "INSERT INTO quarantined_packets (packet, hub_received_at, reason_code, http_status, response_summary,"
+        " quarantined_at) VALUES (?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    legacy.commit()
+    legacy.close()
+
+
+def test_quarantine_unique_constraint_and_legacy_duplicates(tmp_path, capsys):
+    path = tmp_path / "queue.db"
+    bad = v2_packet("CRITICAL", sequence="00000001")
+    other = v2_packet("ALERT", sequence="00000002")
+    _create_legacy_quarantine(path, [
+        (bad, "t1", "PACKET_AUTH_FAILED", 403, "first", NOW),
+        (other, "t2", "PACKET_FORMAT_INVALID", 400, "other", NOW + 1),
+        (bad, "t3", "PACKET_AUTH_FAILED", 403, "second", NOW + 2),
+        (bad, "t4", "PACKET_DUPLICATE_CONFLICT", 409, "newest", NOW + 3),
+    ])
+
+    queue = gateway.PacketQueue(path)
+
+    # 重複は、Packet ごとに最も新しい行だけを残す
+    rows = list(queue.connection.execute(
+        "SELECT packet, hub_received_at, reason_code, response_summary, packet_hash FROM quarantined_packets ORDER BY id"
+    ))
+    assert [row[:4] for row in rows] == [
+        (other, "t2", "PACKET_FORMAT_INVALID", "other"),
+        (bad, "t4", "PACKET_DUPLICATE_CONFLICT", "newest"),
+    ]
+    assert [row[4] for row in rows] == [gateway.packet_key(other), gateway.packet_key(bad)]
+    assert "quarantine migration: removed 2 duplicate rows" in capsys.readouterr().out
+
+    # 重複の挿入は、一意制約で防がれる
+    with pytest.raises(sqlite3.IntegrityError):
+        queue.connection.execute(
+            "INSERT INTO quarantined_packets (packet, reason_code, quarantined_at, packet_hash) VALUES (?, ?, ?, ?)",
+            (bad, "HTTP_400", NOW, gateway.packet_key(bad)),
+        )
+    queue.connection.rollback()
+    assert queue.enqueue(bad, NOW + 10) is None
+
+    # 2回目の起動では、何も消さない
+    queue.connection.close()
+    queue = gateway.PacketQueue(path)
+    assert queue.quarantined_count() == 2
+    assert "quarantine migration" not in capsys.readouterr().out
+    queue.connection.close()
+
+
+def test_legacy_quarantine_migration_failure_leaves_file_unchanged(tmp_path):
+    path = tmp_path / "queue.db"
+    bad = v2_packet("CRITICAL", sequence="00000001")
+    _create_legacy_quarantine(path, [
+        (bad, "t1", "PACKET_AUTH_FAILED", 403, "first", NOW),
+        (bad, "t2", "PACKET_AUTH_FAILED", 403, "second", NOW + 1),
+    ])
+    # 重複を整理できない状況の代わりに、削除を拒むトリガーを置く
+    blocker = sqlite3.connect(path)
+    blocker.execute(
+        "CREATE TRIGGER block_delete BEFORE DELETE ON quarantined_packets BEGIN SELECT RAISE(ABORT, 'blocked'); END"
+    )
+    blocker.commit()
+    blocker.close()
+
+    with pytest.raises(SystemExit, match="The queue file was not changed"):
+        gateway.PacketQueue(path)
+
+    check = sqlite3.connect(path)
+    try:
+        columns = {row[1] for row in check.execute("PRAGMA table_info(quarantined_packets)")}
+        assert "packet_hash" not in columns
+        assert check.execute("SELECT count(*) FROM quarantined_packets").fetchone()[0] == 2
+        assert check.execute(
+            "SELECT count(*) FROM sqlite_master WHERE name = 'quarantined_packets_packet_hash'"
+        ).fetchone()[0] == 0
+    finally:
+        check.close()
