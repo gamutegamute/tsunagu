@@ -39,6 +39,7 @@ from app.emergency_packet import (
 from app.models import (
     DemoResetRequest,
     EmergencyPacket,
+    EmergencyPacketAccepted,
     EmergencyPacketCreate,
     Incident,
     IncidentConfirmRequest,
@@ -854,7 +855,7 @@ def _hub_received_at(value: datetime | None, now_utc: datetime) -> datetime:
 
 @app.post(
     "/api/emergency-packets",
-    response_model=EmergencyPacket,
+    response_model=EmergencyPacketAccepted,
     status_code=201,
     dependencies=[Depends(require_gateway_key)],
 )
@@ -1001,6 +1002,20 @@ def _authenticate_packet_v2(packet: ParsedEmergencyPacketV2) -> str | None:
     return None
 
 
+SHELTER_NOT_REGISTERED = "SHELTER_NOT_REGISTERED"
+
+
+def _v2_accepted_response(row: dict) -> dict:
+    """v2 の受理(新規・再送)の応答に、避難所の登録状況と観測の有無を足す。行の状態から決める。"""
+    shelter_registered = row["shelter_id"] is not None
+    return {
+        **row,
+        "shelter_registered": shelter_registered,
+        "warnings": [] if shelter_registered else [SHELTER_NOT_REGISTERED],
+        "observation_created": row["observation_id"] is not None,
+    }
+
+
 def _create_emergency_packet_v2(raw: str, hub_received_at: datetime) -> dict:
     # 形式検証はHMAC検証より前に行う(形式が不正な入力では鍵を引かない)。
     try:
@@ -1090,7 +1105,7 @@ def _create_emergency_packet_v2(raw: str, hub_received_at: datetime) -> dict:
             if existing["raw_packet"] == packet.raw_packet:
                 # 同一キー・同一内容は再送。v1の再送と同じく既存の行を201で返す。
                 conn.commit()
-                return existing
+                return _v2_accepted_response(existing)
             _record_packet_security_event(
                 conn, "PACKET_DUPLICATE_CONFLICT", "CONTENT_MISMATCH", packet, hub_received_at, existing["id"]
             )
@@ -1102,6 +1117,16 @@ def _create_emergency_packet_v2(raw: str, hub_received_at: datetime) -> dict:
                     "code": "PACKET_DUPLICATE_CONFLICT",
                     "packet_id": existing["id"],
                 },
+            )
+
+        if shelter_id is None:
+            # 報告は捨てずに保存するが、観測は作れない(本部画面の集計に入らない)。設定ミスに気付けるように残す。
+            logger.warning(
+                "Emergency Packet accepted for an unregistered shelter (no observation created): "
+                "shelter_code=%s device_id=%s packet_id=%s",
+                packet.shelter_code,
+                packet.device_id,
+                row["id"],
             )
 
         if shelter_id is not None:
@@ -1133,10 +1158,17 @@ def _create_emergency_packet_v2(raw: str, hub_received_at: datetime) -> dict:
                 (observation_id, row["id"]),
             ).fetchone()
         conn.commit()
-        return row
+        return _v2_accepted_response(row)
 
 
 @app.get("/api/emergency-packets", response_model=list[EmergencyPacket])
 def emergency_packets(_: AuthUser = Depends(require_hq)) -> list[dict]:
     with get_conn() as conn:
-        return list(conn.execute("SELECT * FROM emergency_packets ORDER BY received_at DESC LIMIT 50;"))
+        return list(
+            conn.execute(
+                """
+                SELECT *, shelter_id IS NOT NULL AS shelter_registered
+                FROM emergency_packets ORDER BY received_at DESC LIMIT 50;
+                """
+            )
+        )

@@ -170,6 +170,17 @@ class EmergencyPacket(BaseModel):
     time_trust: TimeTrust | None = None
     signature_status: SignatureStatus | None = None
     observation_id: str | None = None
+    # 避難所コードが登録済みの避難所に紐付いたか(shelter_id が NULL でないか)。
+    # 未登録なら観測(observations)が作られず、通常の本部画面の集計に入らない。
+    shelter_registered: bool | None = None
+
+
+class EmergencyPacketAccepted(EmergencyPacket):
+    """POST /api/emergency-packets の応答。v2 では警告と観測の有無を返す(v1 では null)。"""
+
+    # 例: ["SHELTER_NOT_REGISTERED"](未登録の避難所コード。報告は保存したが観測は作っていない)
+    warnings: list[str] | None = None
+    observation_created: bool | None = None
 
 
 class EmergencyPacketCreate(BaseModel):

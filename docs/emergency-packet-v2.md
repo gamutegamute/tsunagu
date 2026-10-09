@@ -94,6 +94,20 @@ printf '%s' 'v2|TB001|01|A1B2C3D4E5F60718|0000002A|1791234567|AIT001|170|18|WARN
 - 403 のPacketは、`CRITICAL` でも `emergency_packets` / `observations` に保存しません。本文は監査ログ `packet_security_events` に `PACKET_AUTH_FAILED` として記録します。失敗理由(`UNKNOWN_DEVICE` / `DEVICE_DISABLED` / `UNKNOWN_KEY_ID` / `HMAC_MISMATCH`)は監査ログにだけ残し、レスポンスには出しません
 - 409 のときは既存の行を上書きせず、`packet_security_events` に `PACKET_DUPLICATE_CONFLICT` として記録します
 
+### 201 の応答(v2)
+
+v2 の 201 の応答には、保存した行の項目に加えて、次の項目が入ります。再送で既存の行を返すときも、行の状態から同じ値を返します。
+
+| 項目 | 内容 |
+|---|---|
+| `shelter_registered` | `shelter_code` が登録済みの避難所に紐付いたか(`shelter_id` が NULL でないか) |
+| `observation_created` | 観測(`observations`)を作ったか(`observation_id` が NULL でないか) |
+| `warnings` | 警告の配列。未登録の避難所コードなら `["SHELTER_NOT_REGISTERED"]`、それ以外は `[]` |
+
+- 未登録の避難所コードでも、報告は捨てずに 201 で保存します。ただし観測は作らないので、通常の本部画面の集計(避難所ごとの最新の状況やインシデントの一覧)には入りません。設定ミス(持ち込んだ端末の避難所コードの誤りなど)に気付けるよう、`warnings` で区別し、受理したときにサーバーのログに WARNING(`shelter_code`・`device_id`・`packet_id`。鍵と本文は出さない)を1回出します(再送では出しません)
+- `GET /api/emergency-packets`(本部のみ)の各要素にも `shelter_registered` を返します(既存の項目は変えていません)
+- v1 の 201 の応答では、`warnings` と `observation_created` は `null` です(v1 の経路は変えていません。v1 で未登録の避難所コードを送ると、201 で保存され、観測は作られず、警告も出ません)
+
 ## 重複判定
 
 - **v2**: 重複判定キーは `(device_id, install_id, sequence)` です(DBの一意制約 `emergency_packets_device_install_sequence_key`)

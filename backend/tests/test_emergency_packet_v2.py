@@ -600,6 +600,71 @@ def _enable_app_logs(monkeypatch, caplog):
     caplog.set_level(logging.DEBUG)
 
 
+# ---- 未登録の避難所コード ----
+
+
+def test_unregistered_shelter_is_accepted_with_warning(monkeypatch, caplog):
+    _enable_app_logs(monkeypatch, caplog)
+    packet = make_packet(shelter_code="ZZZ999")
+
+    first = post_packet(packet)
+    resent = post_packet(packet)
+
+    for response in (first, resent):
+        assert response.status_code == 201
+        body = response.json()
+        assert body["warnings"] == ["SHELTER_NOT_REGISTERED"]
+        assert body["observation_created"] is False
+        assert body["shelter_registered"] is False
+        assert body["shelter_id"] is None and body["observation_id"] is None
+    assert first.json()["id"] == resent.json()["id"]
+
+    # 受理したときに WARNING を1回だけ出す(再送では出さない)。鍵と本文は出さない。
+    warnings = [r for r in caplog.records if "unregistered shelter" in r.getMessage()]
+    assert len(warnings) == 1 and warnings[0].levelno == logging.WARNING
+    message = warnings[0].getMessage()
+    assert "shelter_code=ZZZ999" in message and "device_id=TB001" in message
+    assert f"packet_id={first.json()['id']}" in message
+    for key in ALL_TEST_KEYS:
+        assert key.hex() not in caplog.text
+    assert packet not in caplog.text
+
+
+def test_registered_shelter_has_no_warning():
+    packet = make_packet(shelter_code="AIT001")
+
+    for response in (post_packet(packet), post_packet(packet)):
+        assert response.status_code == 201
+        body = response.json()
+        assert body["warnings"] == []
+        assert body["observation_created"] is True
+        assert body["shelter_registered"] is True
+
+
+def test_v1_response_has_no_v2_flags():
+    response = post_packet(f"v1|ZZZ999|08:{uuid4().int % 60:02d}|{930_000 + uuid4().int % 1000}|1|NORMAL|NONE")
+    assert response.status_code == 201
+    body = response.json()
+    # v1 の経路は変えていない(警告の項目は null)
+    assert body["warnings"] is None and body["observation_created"] is None
+
+
+def test_packet_list_flags_unregistered_shelter():
+    unregistered = post_packet(make_packet(shelter_code="ZZZ998")).json()
+    registered = post_packet(make_packet(shelter_code="AIT002")).json()
+    login = client.post("/api/auth/dev-login", json={"role": "hq", "name": "Test HQ"})
+    assert login.status_code == 204
+
+    listing = client.get("/api/emergency-packets")
+
+    assert listing.status_code == 200
+    by_id = {item["id"]: item for item in listing.json()}
+    assert by_id[unregistered["id"]]["shelter_registered"] is False
+    assert by_id[registered["id"]]["shelter_registered"] is True
+    # 一覧の応答は、POST 用の警告の項目を持たない(既存の項目は変えない)
+    assert "warnings" not in by_id[registered["id"]]
+
+
 # ---- 起動時のログ ----
 
 
