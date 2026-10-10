@@ -272,9 +272,22 @@ void handleSerialCommand(char *line) {
   } else if (equalsIgnoreCase(line, "SHOW") && arguments == nullptr) {
     showSettings();
   } else if (equalsIgnoreCase(line, "NEWINSTALL") && arguments == nullptr) {
-    if (!settingsStore.resetInstall()) {
-      Serial.println(F("error: could not reset install_id/sequence in NVS"));
-      return;
+    switch (settingsStore.resetInstall()) {
+      case device_settings::ResetInstallResult::Ok:
+        break;
+      case device_settings::ResetInstallResult::RemoveFailed:
+        // install_id が消えていないので、sequence を戻していない。これまでの install_id と sequence のまま使える。
+        Serial.println(F("error: could not remove install_id from NVS; install_id and sequence are unchanged"));
+        return;
+      case device_settings::ResetInstallResult::SequenceResetFailed:
+        // install_id は消えている。新しい install_id ができるまで送信しない(古い install_id は二度と使わない)。
+        Serial.println(F("error: install_id was removed but sequence could not be reset; sending is disabled "
+                         "until a new install_id is generated (run NEWINSTALL again)"));
+        return;
+      case device_settings::ResetInstallResult::NotReady:
+      default:
+        Serial.println(F("error: NVS is not ready; install_id and sequence are unchanged"));
+        return;
     }
     if (settingsStore.ensureInstallId(accessPointRunning)) {
       Serial.print(F("install_id: regenerated "));

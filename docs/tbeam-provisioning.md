@@ -57,7 +57,7 @@ SHOW
 |---|---|
 | `SET <項目> <値>` | 項目は `device_id` / `key_id` / `key` / `shelter_code` / `wifi_pass`。書式が不正なら保存しない |
 | `SHOW` | 設定を表示する。`key` は「set / invalid length / not set」、`wifi_pass` は「set / (not set)」だけを表示し、値は出さない |
-| `NEWINSTALL` | install_id を再発行し、sequence を 0 に戻す(Wi-Fi が止まっているときは、次に Wi-Fi が起動したときに作る) |
+| `NEWINSTALL` | install_id を再発行し、sequence を 0 に戻す(Wi-Fi が止まっているときは、次に Wi-Fi が起動したときに作る)。install_id を NVS から消せなかったときは、sequence を戻さずにエラーを出す(下記) |
 | `HELP` | 設定手順を表示する |
 
 - 鍵とパスワードは、ファームがエコーもログ出力もしません。ただし、シリアルモニタの入力欄の履歴や、端末ソフトのログ機能には残ることがあります。設定後は、シリアルモニタを閉じる・ログを消すなどしてください
@@ -68,6 +68,9 @@ SHOW
 - `install_id` と `sequence` は `SET` では変更できません(`NEWINSTALL` だけ)
 - install_id は 64 ビットの乱数です。乱数源は `esp_random()` で、Wi-Fi(RF)を起動した後にだけ生成します(RF が動いている間はハードウェア乱数になるため)
 - sequence は、送信要求ごとに1つ進み、送信前に NVS へ保存します。保存に失敗したら送信しません。`FFFFFFFF` に達したら送信しないので、`NEWINSTALL` してください
+- `NEWINSTALL` は、**install_id を NVS から消せたことを確かめてから**、sequence を 0 に戻します。消せていないのに sequence だけ 0 に戻すと、再起動後に古い install_id と 0 から始まる sequence の組が再び使われ、サーバーに重複と判断されるためです
+  - install_id を消せなかったとき: install_id も sequence も変えず、`error: could not remove install_id from NVS; install_id and sequence are unchanged` と出します。これまでの install_id と sequence で送信を続けられます
+  - install_id を消せたが sequence を戻せなかったとき: 古い install_id は二度と使いません。新しい install_id ができるまで送信せず、`error: install_id was removed but sequence could not be reset; ...` と出します。もう一度 `NEWINSTALL` してください
 
 ## 鍵の扱い
 

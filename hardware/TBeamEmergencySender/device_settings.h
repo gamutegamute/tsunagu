@@ -163,6 +163,14 @@ inline const char *hmacKeyStateLabel(HmacKeyState state) {
   }
 }
 
+// NEWINSTALL の結果。RemoveFailed のときは、install_id も sequence も変えていない。
+enum class ResetInstallResult {
+  Ok,
+  NotReady,
+  RemoveFailed,        // install_id をNVSから消せなかった。sequence は戻していない(同じ組の再使用を防ぐ)
+  SequenceResetFailed,  // install_id は消えたが、sequence を戻せなかった。新しい install_id ができるまで送信しない
+};
+
 class Store {
  public:
   bool begin() {
@@ -241,17 +249,27 @@ class Store {
   }
 
   // install_id を消して sequence を0に戻す。新しい install_id は ensureInstallId() で作る。
-  bool resetInstall() {
+  //
+  // 順番が安全の要: install_id を消せたことを確かめてから、sequence を戻す。
+  // 消せていないのに sequence を0に戻すと、再起動後に古い install_id と0から始まる sequence の組が
+  // 再び使われ、(device_id, install_id, sequence) が過去の Packet と重なって、サーバーに重複と判断される。
+  // 消せなかったときは何も変えずに RemoveFailed を返す(これまでの install_id と sequence で送信を続けられる)。
+  ResetInstallResult resetInstall() {
     if (!ready_) {
-      return false;
+      return ResetInstallResult::NotReady;
     }
+    // remove() は、キーが元から無いときも false を返す。キーが無いことで確かめる。
     preferences_.remove(KEY_INSTALL_ID);
+    if (preferences_.isKey(KEY_INSTALL_ID)) {
+      return ResetInstallResult::RemoveFailed;
+    }
+    // ここからは、古い install_id は二度と使わない。以降の失敗でも、新しい install_id ができるまで送信しない。
     settings_.installId[0] = '\0';
     if (preferences_.putULong(KEY_SEQUENCE, 0) != sizeof(uint32_t)) {
-      return false;
+      return ResetInstallResult::SequenceResetFailed;
     }
     settings_.nextSequence = 0;
-    return !preferences_.isKey(KEY_INSTALL_ID);
+    return ResetInstallResult::Ok;
   }
 
   // install_id が無ければ、64ビットの乱数から作って保存する。
