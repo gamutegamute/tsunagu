@@ -71,6 +71,7 @@ SHOW
 - `NEWINSTALL` は、**install_id を NVS から消せたことを確かめてから**、sequence を 0 に戻します。消せていないのに sequence だけ 0 に戻すと、再起動後に古い install_id と 0 から始まる sequence の組が再び使われ、サーバーに重複と判断されるためです
   - install_id を消せなかったとき: install_id も sequence も変えず、`error: could not remove install_id from NVS; install_id and sequence are unchanged` と出します。これまでの install_id と sequence で送信を続けられます
   - install_id を消せたが sequence を戻せなかったとき: 古い install_id は二度と使いません。新しい install_id ができるまで送信せず、`error: install_id was removed but sequence could not be reset; ...` と出します。もう一度 `NEWINSTALL` してください
+- `NEWINSTALL` の各分岐は、PC 上の小さなテストで確かめられます(Arduino と NVS はスタブで、実機の動作の確認ではありません): リポジトリのルートで `g++ -std=c++17 -I hardware/tests/stubs -I hardware/TBeamEmergencySender hardware/tests/test_device_settings.cpp -o test_device_settings && ./test_device_settings` を実行し、`OK` が出ること(`hardware/tests/` はスケッチのフォルダの外にあるので、ファームのビルドには含まれません)
 
 ## 鍵の扱い
 
