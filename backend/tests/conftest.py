@@ -15,5 +15,7 @@ def prepare_database() -> None:
     os.environ["DEMO_SEED"] = "true"
     os.environ["DEMO_RESET_ENABLED"] = "true"
     os.environ["DEMO_ADMIN_EMAILS"] = "local-hq@tsunagu.local"
+    # 既存のv1のテストを通すため、開発環境と同じくv1を有効にする(コード上のデフォルトはfalse)。
+    os.environ["ALLOW_V1_PACKETS"] = "true"
     command.upgrade(Config("alembic.ini"), "head")
     seed_demo_data()

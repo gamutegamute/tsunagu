@@ -26,6 +26,17 @@ class VerificationStatus(StrEnum):
     REJECTED = "REJECTED"
 
 
+class SignatureStatus(StrEnum):
+    # Emergency Packetの署名検証の結果。本部職員による確認(VerificationStatus)とは別物。
+    SIGNATURE_VALID = "SIGNATURE_VALID"
+    UNSIGNED_V1 = "UNSIGNED_V1"
+
+
+class TimeTrust(StrEnum):
+    TRUSTED = "TRUSTED"
+    UNTRUSTED = "UNTRUSTED"
+
+
 class ShelterCreate(BaseModel):
     id: str | None = Field(default=None, min_length=1, max_length=50)
     name: str = Field(min_length=1, max_length=120)
@@ -77,6 +88,7 @@ class Observation(BaseModel):
     verified_by: str | None = None
     verified_at: datetime | None = None
     source: str
+    signature_status: SignatureStatus | None = None
 
 
 class ObservationVerificationUpdate(BaseModel):
@@ -147,10 +159,34 @@ class EmergencyPacket(BaseModel):
     request_code: str
     raw_packet: str
     received_at: datetime
+    # 以下はv2で追加した列。v2以前の行はNULL(v1はsignature_status/hub_received_atのみ入る)。
+    device_id: str | None = None
+    key_id: str | None = None
+    install_id: str | None = None
+    sequence: str | None = None
+    reported_at: datetime | None = None
+    hub_received_at: datetime | None = None
+    cloud_synced_at: datetime | None = None
+    time_trust: TimeTrust | None = None
+    signature_status: SignatureStatus | None = None
+    observation_id: str | None = None
+    # 避難所コードが登録済みの避難所に紐付いたか(shelter_id が NULL でないか)。
+    # 未登録なら観測(observations)が作られず、通常の本部画面の集計に入らない。
+    shelter_registered: bool | None = None
+
+
+class EmergencyPacketAccepted(EmergencyPacket):
+    """POST /api/emergency-packets の応答。v2 では警告と観測の有無を返す(v1 では null)。"""
+
+    # 例: ["SHELTER_NOT_REGISTERED"](未登録の避難所コード。報告は保存したが観測は作っていない)
+    warnings: list[str] | None = None
+    observation_created: bool | None = None
 
 
 class EmergencyPacketCreate(BaseModel):
     packet: str = Field(min_length=1, max_length=240)
+    # ゲートウェイ(Hub)がPacketを受信した時刻。省略時はサーバーの受信時刻を使う。
+    hub_received_at: datetime | None = None
 
 
 class DemoResetRequest(BaseModel):
