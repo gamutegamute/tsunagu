@@ -34,6 +34,12 @@ services:
       # v2の端末鍵はGit管理外。リポジトリ直下の .env(.env.example を参照)から渡す。
       PACKET_DEVICE_KEYS: ${PACKET_DEVICE_KEYS:-}
       PACKET_DISABLED_DEVICES: ${PACKET_DISABLED_DEVICES:-}
+      # クラウドへの配送(Outbox)の登録と状態API用。宛先の鍵はAPIには渡さない(ワーカーだけが使う)。
+      OUTBOX_ENABLED: ${OUTBOX_ENABLED:-false}
+      OUTBOX_DESTINATIONS: ${OUTBOX_DESTINATIONS:-}
+      OUTBOX_STATUS_DOWN_SECONDS: ${OUTBOX_STATUS_DOWN_SECONDS:-120}
+      OUTBOX_STATUS_DELAYED_LATENCY_MS: ${OUTBOX_STATUS_DELAYED_LATENCY_MS:-5000}
+      OUTBOX_STATUS_DELAYED_PENDING_SECONDS: ${OUTBOX_STATUS_DELAYED_PENDING_SECONDS:-60}
     ports:
       - "8000:8000"
     volumes:
@@ -42,6 +48,31 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  # クラウドへの配送ワーカー(docs/outbox.md)。デモ用: docker compose --profile demo up
+  outbox-worker:
+    profiles: ["demo"]
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.outbox_worker"]
+    environment:
+      DATABASE_URL: postgresql://shelteros:shelteros@db:5432/shelteros
+      OUTBOX_ENABLED: ${OUTBOX_ENABLED:-false}
+      OUTBOX_DESTINATIONS: ${OUTBOX_DESTINATIONS:-}
+      # 宛先ごとのGateway Key。OUTBOX_DESTINATIONS の key_env と同じ名前の変数を、ここに足す。
+      OUTBOX_KEY_CLOUD_SAT: ${OUTBOX_KEY_CLOUD_SAT:-}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-10}
+      OUTBOX_HTTP_TIMEOUT_SECONDS: ${OUTBOX_HTTP_TIMEOUT_SECONDS:-10}
+      OUTBOX_LEASE_SECONDS: ${OUTBOX_LEASE_SECONDS:-60}
+      OUTBOX_PROBE_INTERVAL_SECONDS: ${OUTBOX_PROBE_INTERVAL_SECONDS:-30}
+      OUTBOX_POLL_INTERVAL_SECONDS: ${OUTBOX_POLL_INTERVAL_SECONDS:-2}
+    depends_on:
+      db:
+        condition: service_healthy
+      # テーブルは api の起動時の移行で作られる。
+      api:
+        condition: service_started
 
 volumes:
   postgres_data:
