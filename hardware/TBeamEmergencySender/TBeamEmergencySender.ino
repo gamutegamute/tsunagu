@@ -118,6 +118,11 @@ void handleSend() {
     return;
   }
 
+  if (emergency_packet_v2::reportedAtLooksUnset(report.reportedAt)) {
+    // 拒否はしない。サーバーが hub_received_at との差で time_trust を判断する。
+    Serial.println(F("[report] reported_at looks unset; sending anyway"));
+  }
+
   // 1回の送信要求に1つのsequence。送信前にNVSへ保存し、保存できなければ送らない。
   uint32_t sequence = 0;
   if (!settingsStore.reserveSequence(sequence)) {

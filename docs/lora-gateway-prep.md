@@ -58,7 +58,7 @@ Arduino側が受け付ける契約は次のとおりです。
 - 表示用: `GET /info` → `{"device_id": "...", "shelter_code": "..."}`(秘密は返さない)
 - 送信先: `POST /send`
 - Content-Type: `application/x-www-form-urlencoded`
-- `reported_at`: Unix秒(UTC、10進)。スマートフォンの時計の値で、2024-01-01より前は拒否する
+- `reported_at`: Unix秒(UTC、10進)。スマートフォンの時計の値。時計が狂っていても拒否せずに送る(サーバーが `hub_received_at` との差が600秒を超えたら `time_trust=UNTRUSTED` として扱う)
 - `people_count`: 0〜1,000,000の整数
 - `water_stock`: 0〜1,000,000の整数
 - `status`: `NORMAL` / `WARNING` / `ALERT` / `CRITICAL`

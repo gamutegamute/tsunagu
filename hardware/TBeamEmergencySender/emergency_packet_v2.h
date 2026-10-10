@@ -17,8 +17,10 @@ namespace emergency_packet_v2 {
 constexpr size_t HMAC_BYTES = 16;
 constexpr size_t HMAC_HEX_LENGTH = HMAC_BYTES * 2;
 constexpr uint32_t MAX_REPORT_VALUE = 1000000UL;
-// 2024-01-01T00:00:00Z より前の reported_at は、端末(スマートフォン)の時計が合っていないとみなして拒否する。
-constexpr uint32_t MIN_REPORTED_AT = 1704067200UL;
+// reported_at は端末(スマートフォン)の時計の値。時計が狂っていても、報告は拒否せずに送る(災害時は時計が合っていないことがある)。
+// 時刻を信用するかどうかはサーバーが判断する(hub_received_at との差が600秒を超えたら time_trust=UNTRUSTED)。
+// この値より前の reported_at は、時計が合っていない可能性が高い(2024-01-01T00:00:00Z)。警告をシリアルに出すだけで、拒否はしない。
+constexpr uint32_t CLOCK_LOOKS_UNSET_BEFORE = 1704067200UL;
 
 const char *const ALLOWED_STATUSES[] = {"NORMAL", "WARNING", "ALERT", "CRITICAL"};
 const char *const ALLOWED_REQUEST_CODES[] = {
@@ -71,7 +73,11 @@ inline bool parseDigits(const String &raw, size_t maxDigits, uint32_t &out) {
 }
 
 inline bool parseReportedAt(const String &raw, uint32_t &out) {
-  return parseDigits(raw, 10, out) && out >= MIN_REPORTED_AT;
+  return parseDigits(raw, 10, out);
+}
+
+inline bool reportedAtLooksUnset(uint32_t reportedAt) {
+  return reportedAt < CLOCK_LOOKS_UNSET_BEFORE;
 }
 
 inline bool parseCount(const String &raw, uint32_t &out) {

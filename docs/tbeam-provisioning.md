@@ -118,6 +118,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --build-property "compiler.cpp.extr
 - [ ] 使用中のバックオフ: 使用中が続くと 100〜500 ms の待ちで最大5回再試行し、すべて使用中なら電波を出さずに `[tx] result=channel_busy` になり、画面に失敗が表示され、入力が残る
 - [ ] 測定帯域の切り替えと復帰: `[cs]` のログに `sense_bw=250kHz` が出る。キャリアセンスの後も、送信が受信機で欠損なく受信できる(帯域が 125 kHz に戻っている)。連続して何回送っても受信できる
 - [ ] 隣のチャネルの信号: 920.6 MHz の 200 kHz チャネルの端(±100 kHz 付近)に信号を置いたとき、`rssi_max` に現れる(測定帯域がチャネル全体を覆っている)ことを、信号発生器などで確認する
+- [ ] 時計が狂った状態での送信: スマートフォンの時計を 2024 年より前(または大きくずらした値)にして送信し、端末が拒否せず送信する。端末のシリアルに `[report] reported_at looks unset; sending anyway` が出る(2024 年より前のときだけ)。サーバーで受理され、`time_trust=UNTRUSTED` になる
 - [ ] 50 ms 休止: 連続して送信したとき、前の送信の終了から次の送信の開始までが 50 ms 以上ある(ロジックアナライザやSDRで確認)
 - [ ] 最大 Packet の送信時間: 131 バイトの Packet の送信時間が 4 秒未満である(起動ログの `time_on_air_ms` と、実測の `measured_ms`)
 - [ ] HMAC セルフテスト: `TSUNAGU_SELFTEST` ビルドで `[selftest] HMAC test vector: OK` が出る
