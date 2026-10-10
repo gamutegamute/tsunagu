@@ -106,6 +106,14 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
     background: #fbe7e7;
     color: #a12a2a;
   }
+  .device-info {
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    line-height: 1.8;
+  }
   .note {
     font-size: 11px;
     color: #777;
@@ -123,12 +131,11 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
 
 <main>
   <div class="field">
-    <label for="shelterCode">避難所コード <span aria-hidden="true">*</span></label>
-    <select id="shelterCode" required>
-      <option value="AIT001">AIT001</option>
-      <option value="AIT002">AIT002</option>
-      <option value="AIT003">AIT003</option>
-    </select>
+    <label>この端末</label>
+    <div class="device-info">
+      <div>避難所コード: <span class="shelter-code" id="shelterCode">-</span></div>
+      <div>端末ID: <span id="deviceId">-</span></div>
+    </div>
   </div>
 
   <div class="field">
@@ -164,8 +171,9 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
   </div>
 
   <div class="field">
-    <label>送信内容プレビュー</label>
+    <label>送信内容プレビュー(入力した部分)</label>
     <div class="packet-preview" id="packetPreview">-</div>
+    <p class="note">通し番号と署名はT-Beamが付けます。報告時刻には、このスマートフォンの時計(<span id="deviceTime">-</span>)を使います。</p>
   </div>
 
   <button id="submitBtn" onclick="submitReport()">LoRaで送信する</button>
@@ -179,44 +187,26 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
 </main>
 
 <script>
-  // T-Beamが配信時に{{SHELTER_CODE}}をdevice_config.hの固定値に置き換える。
-  const DEFAULT_SHELTER_CODE = "{{SHELTER_CODE}}";
-
-  // 決定事項32: インフラ側の実装(hardware/TBeamEmergencySender)に合わせた契約
+  // T-Beam側の契約(hardware/TBeamEmergencySender)
+  //   GET  /info : {"device_id": "...", "shelter_code": "..."}(読み取り専用の表示用)
+  //   POST /send : reported_at / people_count / water_stock / status / request_code
+  // 避難所コード・通し番号・署名はT-Beamが付ける。ブラウザは鍵や署名を扱わない。
+  const INFO_ENDPOINT = "/info";
   const SUBMIT_ENDPOINT = "/send";
+  const MAX_REPORT_VALUE = 1000000;
+  let sending = false;
 
   // 決定事項31(改訂版): クラウド版アプリから遷移してきた場合、
   // 個人情報を含まない最低限の値だけをURLパラメータで事前入力する
   // 例: http://192.168.4.1/?people=170&water=18&status=WARNING&request=REQ_WATER
+  // 避難所コードはT-Beamの設定値を使うので、URLパラメータでは変えられない。
   function applyPrefill() {
-    // 1. まずデフォルトの避難所コードを適用する（T-Beam置換値）
-    if (DEFAULT_SHELTER_CODE && !DEFAULT_SHELTER_CODE.startsWith("{{")) {
-      const select = document.getElementById("shelterCode");
-      const hasOption = Array.from(select.options).some(function (opt) { return opt.value === DEFAULT_SHELTER_CODE; });
-      
-      // 選択肢にデフォルト値がない場合は、独自コードとして動的に追加する
-      if (!hasOption) {
-        const opt = document.createElement("option");
-        opt.value = DEFAULT_SHELTER_CODE;
-        opt.textContent = DEFAULT_SHELTER_CODE + " (デフォルト)";
-        select.appendChild(opt);
-      }
-      select.value = DEFAULT_SHELTER_CODE;
-    }
-
-    // 2. URLパラメータがあればそれを優先して適用する（事前入力）
     const params = new URLSearchParams(window.location.search);
-    const shelter = params.get("shelter") || params.get("shelter_code");
     const people = params.get("people");
     const water = params.get("water");
     const status = params.get("status");
     const request = params.get("request");
 
-    if (shelter !== null) {
-      const select = document.getElementById("shelterCode");
-      const hasOption = Array.from(select.options).some(function (opt) { return opt.value === shelter; });
-      if (hasOption) select.value = shelter;
-    }
     if (people !== null) document.getElementById("people").value = people;
     if (water !== null) document.getElementById("water").value = water;
     if (status !== null && ["NORMAL", "WARNING", "ALERT", "CRITICAL"].includes(status)) {
@@ -229,20 +219,22 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
     }
   }
 
-  function pad2(n) {
-    return String(n).padStart(2, "0");
-  }
-
-  function nowHHMM() {
-    const d = new Date();
-    return pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  async function loadDeviceInfo() {
+    try {
+      const res = await fetch(INFO_ENDPOINT, { cache: "no-store" });
+      if (!res.ok) return;
+      const info = await res.json();
+      // textContentで表示する(HTMLとして解釈しない)
+      document.getElementById("shelterCode").textContent = info.shelter_code || "未設定";
+      document.getElementById("deviceId").textContent = info.device_id || "未設定";
+    } catch (e) {
+      // 表示できなくても送信はT-Beam側の設定値で行われる
+    }
   }
 
   // 人数・水在庫は必須項目とする。空欄のまま「0」として送ってしまうと
   // 実際には無回答なのに「0人・水0L」という誤報になるため、未入力・不正な
   // 値(負の数・小数・上限超過)の場合は送信をブロックし、その理由を返す。
-  const MAX_REPORT_VALUE = 1000000;
-
   function validateCountField(rawValue, label) {
     const trimmed = (rawValue || "").trim();
     if (trimmed === "") {
@@ -268,28 +260,28 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
     return { valid: true, people: peopleResult.value, water: waterResult.value };
   }
 
-  function buildPacket() {
-    const shelter = document.getElementById("shelterCode").value;
-    const people = document.getElementById("people").value || "0";
-    const water = document.getElementById("water").value || "0";
+  function nowUnixSeconds() {
+    return Math.floor(Date.now() / 1000);
+  }
+
+  // プレビューは利用者が入力した部分だけ(人数|水在庫|緊急度|要請コード)。
+  // 端末ID・通し番号・署名はT-Beamが付けるので表示しない。
+  function updatePreview() {
+    const people = document.getElementById("people").value || "-";
+    const water = document.getElementById("water").value || "-";
     const urgency = document.getElementById("urgency").value;
     const requestCode = document.getElementById("requestCode").value;
-    const time = nowHHMM();
-    // v1|避難所コード|時刻|人数|水|緊急度|要請コード
-    // (プレビュー表示専用。実際の送信前バリデーションはsubmitReport内で行う)
-    return ["v1", shelter, time, people, water, urgency, requestCode].join("|");
+    document.getElementById("packetPreview").textContent = [people, water, urgency, requestCode].join("|");
+    document.getElementById("deviceTime").textContent = new Date().toLocaleString("ja-JP");
   }
 
-  function updatePreview() {
-    document.getElementById("packetPreview").textContent = buildPacket();
-  }
-
-  ["shelterCode", "people", "water", "urgency", "requestCode"].forEach(function (id) {
+  ["people", "water", "urgency", "requestCode"].forEach(function (id) {
     document.getElementById(id).addEventListener("input", updatePreview);
     document.getElementById(id).addEventListener("change", updatePreview);
   });
   applyPrefill();
   updatePreview();
+  loadDeviceInfo();
 
   function showResult(success, message) {
     const el = document.getElementById("result");
@@ -298,21 +290,22 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
   }
 
   async function submitReport() {
+    // 送信中の二重要求は受け付けない(T-Beam側でも409で断る)
+    if (sending) return;
     const validation = validateForm();
     if (!validation.valid) {
       showResult(false, validation.message);
       return;
     }
 
+    sending = true;
     const btn = document.getElementById("submitBtn");
     btn.disabled = true;
     btn.textContent = "送信中...";
+    updatePreview();
 
-    // 決定事項32: application/x-www-form-urlencoded、
-    // フィールド名は shelter_code / time / people_count / water_stock / status / request_code
     const formData = new URLSearchParams();
-    formData.set("shelter_code", document.getElementById("shelterCode").value);
-    formData.set("time", nowHHMM());
+    formData.set("reported_at", String(nowUnixSeconds()));
     formData.set("people_count", String(validation.people));
     formData.set("water_stock", String(validation.water));
     formData.set("status", document.getElementById("urgency").value);
@@ -324,17 +317,26 @@ const char PORTAL_HTML[] PROGMEM = R"TSUNAGU_PORTAL(
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formData.toString()
       });
+      let message = "";
+      try {
+        const body = await res.json();
+        message = body && typeof body.message === "string" ? body.message : "";
+      } catch (e) {
+        message = "";
+      }
 
       if (res.ok) {
         // 本部が受信したかどうかはこの時点ではわからないため、
         // 「送出完了」に留める(「本部受信済み」とは表示しない)
-        showResult(true, "LoRa送出完了");
+        showResult(true, message || "LoRa送出完了");
       } else {
-        showResult(false, "LoRa送信に失敗しました。入力内容を確認してください");
+        // 入力内容は消さずに残す
+        showResult(false, message || "LoRa送信に失敗しました。入力内容を確認してください");
       }
     } catch (e) {
-      showResult(false, "LoRa送信に失敗しました。入力内容を確認してください");
+      showResult(false, "LoRa送信に失敗しました。入力内容はそのままです");
     } finally {
+      sending = false;
       btn.disabled = false;
       btn.textContent = "LoRaで送信する";
     }
