@@ -140,7 +140,8 @@ void handleSend() {
   digitalWrite(BOARD_LED_PIN, LOW);
   // キャリアセンスの再試行では、同じPacket(同じsequence・同じhmac)を送る。
   const carrier_sense::Result result =
-      carrier_sense::transmit(radio, reinterpret_cast<const uint8_t *>(packet), packetLength, Serial);
+      carrier_sense::transmit(radio, reinterpret_cast<const uint8_t *>(packet), packetLength, Serial,
+                              TSUNAGU_RADIO_BANDWIDTH_KHZ);
   digitalWrite(BOARD_LED_PIN, HIGH);
   transmitting = false;
 
