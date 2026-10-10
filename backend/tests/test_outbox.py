@@ -653,6 +653,8 @@ def test_delivery_apis_require_hq(env, path):
 
 
 def test_keys_and_url_credentials_do_not_leak(env, caplog):
+    # 設定の検証は、認証情報・クエリ付きのURLを拒否する。ここでは検証をすり抜けた場合でも漏れないこと(多層防御)を確かめる。
+    env.monkeypatch.setattr(outbox_module, "_validate_base_url", lambda base_url, index: base_url)
     destination = env.add_destination("https://user:url-secret@cloud.invalid/base?token=query-secret")
     key = env.keys[destination]
     packet = post_packet(make_packet())
@@ -938,3 +940,90 @@ def test_fixed_now_still_means_a_fixed_clock(env):
     row = outbox_rows(packet_id=packet["id"])[0]
     assert row["accepted_at"] == row["last_attempt_at"] == t0
     assert attempts_for(destination, "DELIVERY")[0]["attempted_at"] == t0
+
+
+# ---- 宛先URLの検証(レビュー対応) ----
+
+
+@pytest.mark.parametrize(
+    ("base_url", "expected"),
+    [
+        ("https://x.invalid", "https://x.invalid"),
+        ("https://x.invalid/", "https://x.invalid"),
+        ("http://127.0.0.1:8000", "http://127.0.0.1:8000"),
+        ("https://x.invalid/tsunagu", "https://x.invalid/tsunagu"),
+        ("https://x.invalid/tsunagu/", "https://x.invalid/tsunagu"),
+        ("https://x.invalid/a/b-c_d.e~f/", "https://x.invalid/a/b-c_d.e~f"),
+        ("https://[::1]:8443/base", "https://[::1]:8443/base"),
+        ("HTTPS://x.invalid:443/base", "https://x.invalid:443/base"),
+    ],
+)
+def test_valid_destination_urls_are_accepted_and_normalized(env, base_url, expected):
+    env.add_destination(base_url)
+
+    settings = load_outbox_settings()
+
+    assert settings.destinations[0].base_url == expected
+
+
+@pytest.mark.parametrize(
+    ("base_url", "message"),
+    [
+        ("https://user:pw-secret@x.invalid", "username or password"),
+        ("https://:pw-secret@x.invalid", "username or password"),
+        ("https://user-secret@x.invalid/base", "username or password"),
+        ("https://x.invalid?token=query-secret", "query or fragment"),
+        ("https://x.invalid/base?token=query-secret", "query or fragment"),
+        ("https://x.invalid/base?", "query or fragment"),
+        ("https://x.invalid/base#frag-secret", "query or fragment"),
+        ("https://x.invalid#", "query or fragment"),
+        ("ftp://x.invalid/base", "http(s) URL"),
+        ("file:///etc/passwd", "http(s) URL"),
+        ("javascript:alert(1)", "http(s) URL"),
+        ("x.invalid/base", "http(s) URL"),
+        ("https:///base", "http(s) URL"),
+        ("https://x.invalid:port-secret/", "http(s) URL"),
+        ("https://x.invalid:99999/", "http(s) URL"),
+        ("https://x.invalid/ba se", "http(s) URL"),
+        ("https://x.invalid/ba\\se", "http(s) URL"),
+        ("https://x.invalid/ba\tse", "http(s) URL"),
+        ("https://x.invalid/ベース", "http(s) URL"),
+        ("https://x.invalid/../admin", "path must be a plain base path"),
+        ("https://x.invalid/base/../admin", "path must be a plain base path"),
+        ("https://x.invalid/base/./x", "path must be a plain base path"),
+        ("https://x.invalid/base/..", "path must be a plain base path"),
+        ("https://x.invalid/base//x", "path must be a plain base path"),
+        ("https://x.invalid//", "path must be a plain base path"),
+        ("https://x.invalid//base", "path must be a plain base path"),
+        ("https://x.invalid/%2e%2e/admin", "path must be a plain base path"),
+        ("https://x.invalid/a%2Fb", "path must be a plain base path"),
+        ("https://x.invalid/a;b", "path must be a plain base path"),
+    ],
+)
+def test_invalid_destination_urls_are_rejected_without_echoing_the_value(env, base_url, message):
+    import traceback
+
+    env.add_destination(base_url)
+
+    with pytest.raises(OutboxConfigError) as excinfo:
+        load_outbox_settings()
+
+    assert "OUTBOX_DESTINATIONS[0].base_url" in str(excinfo.value)
+    assert message in str(excinfo.value)
+    # エラーのメッセージにも、例外のつながり(原因)にも、URLの値を出さない
+    texts = [str(excinfo.value), repr(excinfo.value), "".join(traceback.format_exception(excinfo.value))]
+    for text in texts:
+        for secret in ("pw-secret", "query-secret", "frag-secret", "user-secret", "port-secret", base_url):
+            assert secret not in text
+
+
+def test_base_path_is_kept_in_requests_without_double_slashes(env):
+    destination = env.add_destination("https://cloud.invalid/tsunagu/")
+    post_packet(make_packet())
+    cloud = FakeCloud()
+
+    run(cloud, due())
+
+    assert [request.url.path for request in cloud.deliveries] == ["/tsunagu/api/emergency-packets"]
+    assert [request.url.path for request in cloud.probes] == ["/tsunagu/health"]
+    assert attempts_for(destination, "DELIVERY")[0]["outcome"] == "ACCEPTED"

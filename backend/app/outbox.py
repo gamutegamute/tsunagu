@@ -91,6 +91,43 @@ def _positive_number(name: str, default: str, cast=float):
     return value
 
 
+# base_url のパスの各セグメントに使える文字。"%" は許さない(%2e%2e や %2f による回避を防ぐ)。
+_PATH_SEGMENT = r"[A-Za-z0-9._~-]+"
+
+
+def _validate_base_url(base_url: str, index: int) -> str:
+    """宛先の base_url を検証し、末尾のスラッシュを取り除いた形を返す。
+
+    許可: スキーム http / https、ホスト、任意のポート、ベースのパス(例: https://host/tsunagu)。
+    拒否: ユーザー名・パスワード、クエリ、フラグメント、空のセグメント(//)、"." と ".." のセグメント、
+    パスに使えない文字(空白・制御文字・% ・バックスラッシュ など)。
+    URLにクレデンシャルが含まれ得るので、エラーメッセージには拒否した理由の種類だけを出し、値は出さない。
+    """
+    prefix = f"OUTBOX_DESTINATIONS[{index}].base_url"
+    if not base_url.isascii() or not base_url.isprintable() or " " in base_url or "\\" in base_url:
+        raise OutboxConfigError(f"{prefix} must be an http(s) URL")
+    try:
+        parts = urlsplit(base_url)
+        host = parts.hostname
+        parts.port  # ポートが数字でないときの ValueError を、ここで起こす
+    except ValueError:
+        raise OutboxConfigError(f"{prefix} must be an http(s) URL") from None
+    if parts.scheme not in {"http", "https"} or not host:
+        raise OutboxConfigError(f"{prefix} must be an http(s) URL")
+    if "@" in parts.netloc:
+        raise OutboxConfigError(f"{prefix} must not contain a username or password")
+    if "?" in base_url or "#" in base_url:
+        raise OutboxConfigError(f"{prefix} must not contain a query or fragment")
+    path = parts.path[:-1] if parts.path.endswith("/") else parts.path  # 末尾のスラッシュ1つだけ正規化する
+    if path and not all(
+        fullmatch(_PATH_SEGMENT, segment) and segment not in {".", ".."} for segment in path[1:].split("/")
+    ):
+        raise OutboxConfigError(
+            f"{prefix} path must be a plain base path (no empty, '.' or '..' segments or special characters)"
+        )
+    return f"{parts.scheme}://{parts.netloc}{path}"
+
+
 def _parse_destinations(raw: str) -> tuple[OutboxDestination, ...]:
     if not raw.strip():
         return ()
@@ -117,14 +154,7 @@ def _parse_destinations(raw: str) -> tuple[OutboxDestination, ...]:
             raise OutboxConfigError(f"OUTBOX_DESTINATIONS[{index}].key_env is invalid")
         if not isinstance(base_url, str):
             raise OutboxConfigError(f"OUTBOX_DESTINATIONS[{index}].base_url is invalid")
-        try:
-            parts = urlsplit(base_url)
-            valid_url = parts.scheme in {"http", "https"} and bool(parts.hostname)
-        except ValueError:
-            valid_url = False
-        if not valid_url:
-            # URLにクレデンシャルが含まれ得るので、値はメッセージに出さない。
-            raise OutboxConfigError(f"OUTBOX_DESTINATIONS[{index}].base_url must be an http(s) URL")
+        base_url = _validate_base_url(base_url, index)
         seen.add(destination_id)
         destinations.append(OutboxDestination(id=destination_id, base_url=base_url, key_env=key_env))
     return tuple(destinations)
