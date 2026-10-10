@@ -158,6 +158,105 @@ TSUNAGU_GATEWAY_API_KEY is required
 
 スクリプト自体は起動したものの、送信時に`401`が返る場合は、環境変数に設定した値がSSM Parameter Storeに保存されている実際の値と一致していない可能性が高いです(コピペミス、古い値の使い回し、ローカル用の`local-gateway-key`のまま本番URLへ送っている、など)。SSMの値と手元の環境変数を突き合わせて確認してください。
 
+`401` が返ると、ゲートウェイは**送信を停止**します(下の「ゲートウェイの送信とエラーの扱い」)。ログに `sending is STOPPED (configuration error: HTTP_401 ...)` と出ます。受信とキューへの保存は続くので、値を直したら、ゲートウェイを再起動してください。キューに残った Packet から送信が再開されます。
+
+## ゲートウェイの送信とエラーの扱い
+
+`tools/lora_serial_gateway.py` は、受信した Packet を**ローカルのAPI 1つ**(`--api-url`、デフォルト `http://localhost:8000/api/emergency-packets`)へ送ります。HMAC(署名)の検証はサーバーの役割なので、ゲートウェイではしません。
+
+### 受信とキュー
+
+- 受信した行のうち、Emergency Packet の形のものだけをキューへ入れます。v1 は区切り6個(160文字以下)、v2 は区切り11個(131文字以下)で、印字できるASCII文字だけのもの
+- 形が正しくない行は捨てます。ログには、長さと理由(`unknown_version` / `delimiter_count` / `too_long` / `non_printable`)だけを出し、内容は出しません
+- Packet(raw packet)は改変しません。行末の改行だけを取り除きます
+- キューは SQLite(`.tsunagu/lora_gateway_queue.db`、`--queue-db` で変更可)です。キューの列: `id`、`packet`、`queued_at`、`status`、`hub_received_at`、`attempts`、`next_attempt_at`
+- 古い形式のキューのファイルは、起動時に、足りない列だけを追加します(データは消しません)。古い行は `queued_at` を `hub_received_at` の代わりに使います
+- `hub_received_at` は、ゲートウェイがシリアルで受信した時刻(UTC)です。`2026-10-06T12:00:00.123Z` の形で保存し、そのままAPIへ送ります
+- `status` は、Packet を `|` で分けた位置から取り出します(v1 は6番目、v2 は10番目)。`NORMAL` / `WARNING` / `ALERT` / `CRITICAL` 以外は、最も低い優先度にします。避難所コードなど、ほかの欄に `CRITICAL` という文字列があっても、優先されません(`status` を持たない古い行だけ、従来どおり文字列の検索で判定します)
+
+### 送信
+
+- 送る順番: 送ってよい時刻(`next_attempt_at`)になった行を、緊急度順(CRITICAL → ALERT → WARNING → その他)、同じ緊急度では `hub_received_at` 順、次に `id` 順
+- リクエスト: `POST`、`{"packet": "<raw packet>", "hub_received_at": "<UTC>"}`、ヘッダー `X-Gateway-Key`(環境変数 `TSUNAGU_GATEWAY_API_KEY`。未設定なら起動時にエラーで終了)
+- リダイレクトは追いません
+
+### 応答の扱い
+
+| 応答 | 扱い | 後続の Packet |
+|---|---|---|
+| 2xx | キューから削除 | 送る |
+| 400・422 | **隔離**(`quarantined_packets` へ移し、再送しない) | 送る |
+| 403 + `PACKET_AUTH_FAILED` | その Packet だけ**隔離** | 送る |
+| 409 | **隔離**し、ログに残す | 送る |
+| 401、403(それ以外)、3xx、そのほかの想定外の応答(404 など) | 設定異常として**送信を停止**。キューは保持し、受信とキューへの保存は続ける | 送らない |
+| 429・5xx | その行に指数バックオフ(5秒から上限5分、ジッタ付き)を設定 | 送る。ただし同じ周回で 429・5xx が3件続いたら、その周回は止める |
+| 接続エラー・タイムアウト | 行はそのまま | その周回は止め、次の周回(約5秒後)で再開 |
+
+- 以前は、4xx の Packet がキューに残り、5秒ごとに再送され続けていました。いまは 400・422・403(`PACKET_AUTH_FAILED`)・409 を隔離するので、再送され続けません
+- 送信の停止は、ログに原因(`HTTP_401` など)とともに出します。同じログは5分ごとに間引きます。**再開は、ゲートウェイの再起動のとき**です
+- ログには、Packet の内容(v2 の最後の hmac 欄を含む)と Gateway Key を出しません。Packet は `id` の先頭、版、`status`、長さだけで示します
+- APIのURLは、停止理由・ログ・`repr` では、スキーム・ホスト・ポートだけを出します(例: `HTTP_401 from http://localhost:8000`)。URL に含めた認証情報(`user:password@`)、パス、クエリ、フラグメントは出しません。送信先そのものは変えません
+
+### 隔離テーブル(`quarantined_packets`)
+
+列: `packet`(署名つきの raw packet をそのまま保存)、`hub_received_at`、`reason_code`(`detail.code` か `HTTP_<状態>`)、`http_status`、`response_summary`(応答の要約。200文字まで。Gateway Key と hmac は伏せる)、`quarantined_at`、`packet_hash`(raw packet の SHA-256。キューの `id` と同じ作り方。一意制約つき)
+
+- 受信した Packet は、キュー(`pending_packets`)と隔離テーブルの両方で、同じキー(raw packet の SHA-256)で重複を確認します。**隔離済みの Packet を再受信しても、キューへ戻さず、再送しません**。ログに `already quarantined (not requeued)` と出ます
+- 以前の形の隔離テーブル(`packet_hash` が無い)は、起動時に、`packet_hash` を足して埋め、同じ Packet の行が複数あれば最も新しい行(`id` が最大)だけを残してから、一意制約を足します。消した件数はログに出ます(`quarantine migration: removed N duplicate rows`)
+- この移行は1つのトランザクションで行います。失敗したとき(ほかのゲートウェイが同じファイルを使っている、ファイルが壊れている、など)は、元に戻して(ファイルは変えずに)、起動を止めます。ほかのゲートウェイを止め、ファイルをバックアップして確認してから、起動し直してください
+
+### キューのファイルの扱い(重要)
+
+- キューと隔離テーブルの SQLite のファイルには、**署名つきの Packet** が入ります
+- ファイルを、他人に渡す・GitHub に載せる・チャットに貼ることは避けてください
+- ハブPCを紛失したときに備えて、ディスクの暗号化(BitLocker など)と、OSのログイン(パスワードやPIN)を設定してください。紛失したときは、その端末の鍵を、サーバー側で無効化(`PACKET_DISABLED_DEVICES`)するか、作り直すことを検討してください
+- 隔離テーブルの保存期間と削除は、今回は対象外です(将来の課題)。必要に応じて、手で削除してください
+
+### 隔離した Packet を再送する手順
+
+サーバー側の鍵台帳を直したあと(例: `PACKET_AUTH_FAILED` で隔離された Packet)に、隔離した Packet をキューへ戻す手順です。専用のコマンドはありません。隔離テーブルに行が残っている間は、同じ Packet を再受信してもキューへ入らないので、再送したいときはこの手順で戻してください。
+
+1. ゲートウェイを止める(Ctrl + C)
+2. キューのファイルをバックアップする(例: `.tsunagu/lora_gateway_queue.db` をコピー。コピーも上の注意どおりに扱う)
+3. 戻す Packet を確認する。Packet の内容は画面に出さず、件数と理由だけを見る
+
+```powershell
+python -c "import sqlite3; c = sqlite3.connect('.tsunagu/lora_gateway_queue.db'); print(c.execute('SELECT reason_code, count(*) FROM quarantined_packets GROUP BY reason_code').fetchall())"
+```
+
+4. 理由を指定して、キューへ戻す。下の例は `PACKET_AUTH_FAILED` です。キューと同じ id の作り方で戻し、戻した行を隔離テーブルから消します(リポジトリの直下で、PowerShell で実行)
+
+```powershell
+@'
+import hashlib, sys, time
+sys.path.insert(0, "tools")
+import lora_serial_gateway as g
+
+QUEUE_DB = ".tsunagu/lora_gateway_queue.db"
+REASON = "PACKET_AUTH_FAILED"
+
+q = g.PacketQueue(g.Path(QUEUE_DB))
+rows = q.connection.execute(
+    "SELECT id, packet, hub_received_at FROM quarantined_packets WHERE reason_code = ?", (REASON,)
+).fetchall()
+with q.connection:
+    for row_id, packet, hub_received_at in rows:
+        q.connection.execute(
+            "INSERT OR IGNORE INTO pending_packets"
+            " (id, packet, queued_at, status, hub_received_at, attempts, next_attempt_at)"
+            " VALUES (?, ?, ?, ?, ?, 0, 0)",
+            (hashlib.sha256(packet.encode("utf-8")).hexdigest(), packet, time.time(),
+             g.extract_status(packet), hub_received_at),
+        )
+        q.connection.execute("DELETE FROM quarantined_packets WHERE id = ?", (row_id,))
+print("requeued", len(rows))
+'@ | python -
+```
+
+5. ゲートウェイを起動する。戻した Packet は、受信時刻(`hub_received_at`)を保ったまま、緊急度順に送られます。サーバーはクラウド側と同じく、同じ Packet の再送を冪等に受理します
+
+`--queue-db` を変えている場合は、パスを読み替えてください。
+
 ## T-Beam 到着後の流れ
 
 1. 付属アンテナを接続してからT-Beamへ給電する。
@@ -187,7 +286,7 @@ python .\tools\lora_serial_gateway.py --port COM3
 - 受信側のシリアル出力は説明文なしのPacket 1行だけになる。
 - `POST /api/emergency-packets` が 201 を返す。
 - `GET /api/emergency-packets` に受信ログが出る。
-- 不正な Packet は 400 になる。
+- 不正な Packet は 400 になり、ゲートウェイの隔離テーブルへ移って、再送されない。
 - Packet には報告者名、メモ、Incident 詳細を入れない。
 - 付属アンテナを接続してから送信する。
 
