@@ -100,7 +100,7 @@ python -m app.outbox_worker resume --destination <id>
 python -m app.outbox_worker backfill --destination <id> (--since <ISO8601> | --all) [--dry-run]
 ```
 
-1周の処理(`run_once(now)`):
+1周の処理(`run_once`)。**時刻は、使う時点ごとに取り直します**(HTTPが遅くても、記録する時刻が実際の時刻からずれないようにするため)。`lease_until` と `last_attempt_at` は行を取った時点、`accepted_at` と `next_attempt_at`(バックオフ)は応答を受けた時点を基準にします。`delivery_attempts.attempted_at` は、送信を始めた時刻です。テストでは `run_once(clock=...)` で時計を渡せます(`run_once(now)` は、その時刻に固定した時計になります):
 
 1. `lease_until` を過ぎた `SENDING` の行を `PENDING` に戻す(`last_error_code=LEASE_EXPIRED`)。送信済みかは分からないが、クラウドは冪等なので送り直してよい
 2. 宛先ごとに、順番に(同時送信なし):

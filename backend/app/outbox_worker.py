@@ -17,6 +17,7 @@ import random
 import sys
 import time
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from re import fullmatch
 from uuid import uuid4
@@ -65,6 +66,10 @@ class RunSummary:
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# 時計。使う時点ごとに呼び直す(HTTPが遅くても、記録する時刻が実際の時刻からずれないように)。
+Clock = Callable[[], datetime]
 
 
 def _response_error_code(response: httpx.Response) -> str | None:
@@ -196,7 +201,7 @@ def claim_next(conn, destination_id: str, now: datetime, lease_seconds: int) -> 
         SET state = 'SENDING', lease_until = %s, attempts = o.attempts + 1, last_attempt_at = %s
         FROM emergency_packets p
         WHERE o.id = %s AND p.id = o.emergency_packet_id
-        RETURNING o.id, o.emergency_packet_id, o.attempts, p.raw_packet, p.hub_received_at;
+        RETURNING o.id, o.emergency_packet_id, o.attempts, o.last_attempt_at, p.raw_packet, p.hub_received_at;
         """,
         (now + timedelta(seconds=lease_seconds), now, row["id"]),
     ).fetchone()
@@ -237,6 +242,7 @@ def apply_result(
     settings: OutboxSettings,
     rng: random.Random,
 ) -> None:
+    """応答を受けた時点の時刻 now で、行の状態を更新する。試行の時刻(attempted_at)は、送信の開始時刻。"""
     outcome_by_action = {
         ACCEPT: "ACCEPTED",
         QUARANTINE: "QUARANTINED",
@@ -285,7 +291,7 @@ def apply_result(
         outbox_id=row["id"],
         destination_id=destination.id,
         kind="DELIVERY",
-        attempted_at=now,
+        attempted_at=row["last_attempt_at"],
         outcome=outcome_by_action[result.action],
         http_status=result.http_status,
         latency_ms=result.latency_ms,
@@ -349,18 +355,20 @@ def probe_if_due(conn, client: httpx.Client, destination: OutboxDestination, now
     return True
 
 
-def process_destination(conn, client: httpx.Client, destination: OutboxDestination, now: datetime,
+def process_destination(conn, client: httpx.Client, destination: OutboxDestination, clock: Clock,
                         settings: OutboxSettings, rng: random.Random, summary: RunSummary) -> None:
     if destination_is_stopped(conn, destination.id):
         conn.commit()
         summary.skipped_stopped_destinations.append(destination.id)
         return
     for _ in range(settings.batch_size):
-        row = claim_next(conn, destination.id, now, settings.lease_seconds)
+        # 取得の時刻(lease_until と last_attempt_at の基準)と、応答の時刻(accepted_at と next_attempt_at の基準)は、
+        # それぞれ使う時点で取り直す。
+        row = claim_next(conn, destination.id, clock(), settings.lease_seconds)
         if row is None:
             return
         result = send_packet(client, destination, row)
-        apply_result(conn, destination, row, result, now, settings, rng)
+        apply_result(conn, destination, row, result, clock(), settings, rng)
         if result.action == ACCEPT:
             summary.delivered += 1
         elif result.action == QUARANTINE:
@@ -381,9 +389,14 @@ def run_once(
     http_client: httpx.Client | None = None,
     rng: random.Random | None = None,
     settings: OutboxSettings | None = None,
+    clock: Clock | None = None,
 ) -> RunSummary:
-    """1周分の処理。時刻・HTTPクライアント・乱数を外から渡せる(テスト用)。"""
-    now = now or utc_now()
+    """1周分の処理。時刻・HTTPクライアント・乱数を外から渡せる(テスト用)。
+
+    時刻は、使う時点ごとに clock() で取り直す。now を渡したときは、その時刻に固定した時計になる(clock が優先)。
+    """
+    if clock is None:
+        clock = utc_now if now is None else (lambda: now)
     rng = rng or random.Random()
     settings = settings or load_outbox_settings(require_keys=True)
     summary = RunSummary()
@@ -393,13 +406,13 @@ def run_once(
     client = http_client or httpx.Client(timeout=settings.http_timeout_seconds, follow_redirects=False)
     try:
         with get_conn() as conn:
-            summary.released_leases = release_expired_leases(conn, now)
+            summary.released_leases = release_expired_leases(conn, clock())
             conn.commit()
             for destination in settings.destinations:
-                if probe_if_due(conn, client, destination, now, settings):
+                if probe_if_due(conn, client, destination, clock(), settings):
                     summary.probes += 1
                 # 宛先は1つずつ順に処理する(同時送信なし)。
-                process_destination(conn, client, destination, now, settings, rng, summary)
+                process_destination(conn, client, destination, clock, settings, rng, summary)
     finally:
         if http_client is None:
             client.close()

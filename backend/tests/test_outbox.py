@@ -849,3 +849,92 @@ def test_backfill_argument_errors(env, capsys):
     window = _unique_window().isoformat()
     assert outbox_worker.main(["backfill", "--destination", destination, "--since", window, "--dry-run"]) == 0
     assert capsys.readouterr().out.strip() == "targets: 0"
+
+
+# ---- 時刻は使う時点で取り直す(レビュー対応) ----
+
+
+class AdvancingClock:
+    """テスト用の時計。advance() を呼ぶまで進まない(HTTPが遅い状況を、応答の中で進めて再現する)。"""
+
+    def __init__(self, start: datetime):
+        self.current = start
+
+    def __call__(self) -> datetime:
+        return self.current
+
+    def advance(self, seconds: float) -> None:
+        self.current += timedelta(seconds=seconds)
+
+
+def run_with_clock(cloud: FakeCloud, clock: AdvancingClock, seed: int = 0) -> outbox_worker.RunSummary:
+    with cloud.client() as http_client:
+        return outbox_worker.run_once(clock=clock, http_client=http_client, rng=random.Random(seed))
+
+
+def test_times_are_taken_when_used_and_not_at_the_start_of_the_cycle(env):
+    destination = env.add_destination()
+    for _ in range(3):
+        post_packet(make_packet())
+    t0 = due()
+    clock = AdvancingClock(t0)
+    seen = []
+
+    def slow_cloud(request):
+        # 送信中の行(SENDING)の取得時刻を記録してから、通信に20秒かかったことにする。
+        sending = [row for row in outbox_rows(destination_id=destination) if row["state"] == "SENDING"]
+        assert len(sending) == 1
+        seen.append((clock(), sending[0]["last_attempt_at"], sending[0]["lease_until"]))
+        clock.advance(20)
+        return httpx.Response(201, json={"id": "EP-cloud"})
+
+    run_with_clock(FakeCloud(slow_cloud), clock)
+
+    assert len(seen) == 3
+    for k, (claimed_at, last_attempt_at, lease_until) in enumerate(seen):
+        assert claimed_at == t0 + timedelta(seconds=20 * k)
+        assert last_attempt_at == claimed_at  # 送信の開始時
+        assert lease_until == claimed_at + timedelta(seconds=60)  # 取得時から OUTBOX_LEASE_SECONDS(60)
+    rows = sorted(outbox_rows(destination_id=destination), key=lambda row: row["last_attempt_at"])
+    assert [row["accepted_at"] for row in rows] == [t0 + timedelta(seconds=20 * (k + 1)) for k in range(3)]
+    assert all(row["lease_until"] is None for row in rows)
+    attempted = [attempt["attempted_at"] for attempt in attempts_for(destination, "DELIVERY")]
+    assert attempted == [t0 + timedelta(seconds=20 * k) for k in range(3)]  # 試行の時刻は送信の開始時
+    with get_conn() as conn:
+        synced = conn.execute(
+            "SELECT cloud_synced_at FROM emergency_packets WHERE id = ANY(%s) ORDER BY cloud_synced_at;",
+            ([row["emergency_packet_id"] for row in rows],),
+        ).fetchall()
+    assert [row["cloud_synced_at"] for row in synced] == [t0 + timedelta(seconds=20 * (k + 1)) for k in range(3)]
+
+
+def test_next_attempt_at_is_counted_from_the_response_time(env):
+    destination = env.add_destination()
+    packet = post_packet(make_packet())
+    t0 = due()
+    clock = AdvancingClock(t0)
+
+    def slow_failure(request):
+        clock.advance(20)
+        return httpx.Response(503, json={"detail": "error"})
+
+    run_with_clock(FakeCloud(slow_failure), clock)
+
+    row = outbox_rows(packet_id=packet["id"])[0]
+    assert row["last_attempt_at"] == t0
+    responded_at = t0 + timedelta(seconds=20)
+    # 1回目のバックオフは 2.5〜5 秒。応答を受けた時刻から数える。
+    assert responded_at + timedelta(seconds=2.5) <= row["next_attempt_at"] <= responded_at + timedelta(seconds=5)
+    assert len(attempts_for(destination, "DELIVERY")) == 1
+
+
+def test_fixed_now_still_means_a_fixed_clock(env):
+    destination = env.add_destination()
+    packet = post_packet(make_packet())
+    t0 = due()
+
+    run(FakeCloud(), t0)
+
+    row = outbox_rows(packet_id=packet["id"])[0]
+    assert row["accepted_at"] == row["last_attempt_at"] == t0
+    assert attempts_for(destination, "DELIVERY")[0]["attempted_at"] == t0
