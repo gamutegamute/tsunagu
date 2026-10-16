@@ -5,7 +5,8 @@ from alembic import context
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # テストなど同じプロセスで移行を実行したときに、アプリのロガー(app.*)を無効にしない。
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 database_url = os.getenv("DATABASE_URL", "postgresql://shelteros:shelteros@localhost:5432/shelteros")
 if database_url.startswith("postgresql://"):

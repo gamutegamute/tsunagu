@@ -53,10 +53,13 @@ def get_settings() -> Settings:
 
 
 def validate_runtime_settings() -> None:
+    from app.outbox import load_outbox_settings
     from app.packet_keys import load_device_key_registry
 
     # 端末台帳の書式誤りは、最初のPacket受信時ではなく起動時に気付けるようにする。
     load_device_key_registry()
+    # Outboxの宛先の書式も起動時に確認する(APIは鍵を持たないので、鍵の有無はワーカーが確認する)。
+    load_outbox_settings()
 
     settings = get_settings()
     if settings.app_env != "production":

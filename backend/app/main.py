@@ -38,9 +38,11 @@ from app.emergency_packet import (
 )
 from app.models import (
     DemoResetRequest,
+    DestinationStatusResponse,
     EmergencyPacket,
     EmergencyPacketAccepted,
     EmergencyPacketCreate,
+    EmergencyPacketDeliveries,
     Incident,
     IncidentConfirmRequest,
     IncidentResolutionApproveRequest,
@@ -53,6 +55,13 @@ from app.models import (
     Shelter,
     ShelterCreate,
     ShelterStatus,
+)
+from app.outbox import (
+    FORWARDABLE_SIGNATURE_STATUS,
+    destination_statuses,
+    load_outbox_settings,
+    packet_deliveries,
+    register_packet_safely,
 )
 from app.packet_keys import KeyLookupFailure, PacketKeyConfigError, load_device_key_registry
 from app.status import decide_request_code, decide_status
@@ -1104,6 +1113,8 @@ def _create_emergency_packet_v2(raw: str, hub_received_at: datetime) -> dict:
                 raise HTTPException(status_code=500, detail="Emergency Packet could not be stored")
             if existing["raw_packet"] == packet.raw_packet:
                 # 同一キー・同一内容は再送。v1の再送と同じく既存の行を201で返す。
+                # Outboxは ON CONFLICT DO NOTHING なので重複しない(前回の登録が失敗していれば、ここで埋まる)。
+                register_packet_safely(conn, existing)
                 conn.commit()
                 return _v2_accepted_response(existing)
             _record_packet_security_event(
@@ -1157,8 +1168,40 @@ def _create_emergency_packet_v2(raw: str, hub_received_at: datetime) -> dict:
                 "UPDATE emergency_packets SET observation_id = %s WHERE id = %s RETURNING *;",
                 (observation_id, row["id"]),
             ).fetchone()
+        # クラウドへの配送を、受理と同じトランザクションで登録する(失敗しても受理は失敗させない)。
+        register_packet_safely(conn, row)
         conn.commit()
         return _v2_accepted_response(row)
+
+
+@app.get("/api/destinations/status", response_model=DestinationStatusResponse)
+def destinations_status(_: AuthUser = Depends(require_hq)) -> dict:
+    settings = load_outbox_settings()
+    now = _current_utc_time()
+    with get_conn() as conn:
+        return {
+            "enabled": settings.enabled,
+            "generated_at": now,
+            "destinations": destination_statuses(conn, settings, now),
+        }
+
+
+@app.get("/api/emergency-packets/{packet_id}/deliveries", response_model=EmergencyPacketDeliveries)
+def emergency_packet_deliveries(packet_id: str, _: AuthUser = Depends(require_hq)) -> dict:
+    with get_conn() as conn:
+        packet = conn.execute(
+            "SELECT id, version, signature_status FROM emergency_packets WHERE id = %s;", (packet_id,)
+        ).fetchone()
+        if packet is None:
+            raise HTTPException(status_code=404, detail="Emergency packet not found")
+        return {
+            "emergency_packet_id": packet["id"],
+            "version": packet["version"],
+            "signature_status": packet["signature_status"],
+            # v1(UNSIGNED_V1)などはクラウドが拒否するので、配送の対象にしない。
+            "forwardable": packet["signature_status"] == FORWARDABLE_SIGNATURE_STATUS,
+            "deliveries": packet_deliveries(conn, packet_id),
+        }
 
 
 @app.get("/api/emergency-packets", response_model=list[EmergencyPacket])

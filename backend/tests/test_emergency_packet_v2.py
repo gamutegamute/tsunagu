@@ -427,6 +427,8 @@ def test_keys_do_not_appear_in_logs_or_responses(caplog):
     listing = client.get("/api/emergency-packets")
     assert listing.status_code == 200
 
+    # ログが実際に取れていること(空のログを調べるだけのテストにしない)。
+    assert "Emergency Packet security event" in caplog.text
     texts = [caplog.text, listing.text, *(response.text for response in responses)]
     for key in ALL_TEST_KEYS:
         for text in texts:
