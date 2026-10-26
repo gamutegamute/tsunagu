@@ -3,6 +3,7 @@
 // バグに気づきにくくなるため、ここでしか定義しない。
 const KEY_SUFFIXES = {
   pendingReports: "pendingReports",
+  pendingReportsFallback: "pendingReportsFallback",
   pendingReportsMigrated: "pendingReportsMigratedToIndexedDb",
   cachedShelters: "cachedShelters",
   cachedDashboard: "cachedDashboard",

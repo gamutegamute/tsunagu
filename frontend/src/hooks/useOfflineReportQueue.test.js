@@ -39,6 +39,67 @@ describe("useOfflineReportQueue", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
+  });
+
+  it("automatically retries a transient POST failure with backoff and Retry-After", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    createObservation.mockRejectedValueOnce(Object.assign(new Error("busy"), { status: 503, retryAfterMs: 15000 })).mockResolvedValue({});
+    const { result } = renderHook(() => useOfflineReportQueue());
+    await act(async () => {
+      await result.current.addReportToPendingQueue(makeReport());
+      await result.current.sendPendingReports();
+    });
+    expect(createObservation).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(createObservation).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    // IndexedDB completion uses a real task, independent of the retry timer.
+    await act(async () => { await getPendingReports(); });
+    await act(async () => { await getPendingReports(); });
+    expect(createObservation).toHaveBeenCalledTimes(2);
+    await expect(getPendingReports()).resolves.toEqual([]);
+  });
+
+  it("does not retry permanent validation errors or run concurrent syncs", async () => {
+    createObservation.mockRejectedValue(Object.assign(new Error("invalid"), { status: 422 }));
+    const { result } = renderHook(() => useOfflineReportQueue());
+    await act(async () => {
+      await result.current.addReportToPendingQueue(makeReport());
+      await Promise.all([result.current.sendPendingReports(), result.current.sendPendingReports()]);
+      await result.current.sendPendingReports();
+    });
+    expect(createObservation).toHaveBeenCalledTimes(1);
+    await expect(getPendingReports()).resolves.toHaveLength(1);
+    expect(result.current.syncError).toContain("入力内容");
+    createObservation.mockResolvedValue({});
+    await act(async () => { await result.current.retryPendingReports(); });
+    expect(createObservation).toHaveBeenCalledTimes(2);
+    await expect(getPendingReports()).resolves.toEqual([]);
+  });
+
+  it("automatically sends reports added during an active sync in a later pass", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    let finishFirst;
+    createObservation.mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; })).mockResolvedValue({});
+    const { result } = renderHook(() => useOfflineReportQueue());
+    await act(async () => { await result.current.addReportToPendingQueue(makeReport({ client_event_id: "first" })); });
+    let sync;
+    await act(async () => {
+      sync = result.current.sendPendingReports();
+      await getPendingReports();
+    });
+    expect(createObservation).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await result.current.addReportToPendingQueue(makeReport({ client_event_id: "later" }));
+      finishFirst({});
+      await sync;
+    });
+    expect(result.current.pendingReportCount).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    await act(async () => { await getPendingReports(); await getPendingReports(); });
+    expect(createObservation).toHaveBeenCalledTimes(2);
+    await expect(getPendingReports()).resolves.toEqual([]);
   });
 
   it("adds a report to the durable queue", async () => {

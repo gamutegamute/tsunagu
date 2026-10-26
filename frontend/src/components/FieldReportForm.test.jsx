@@ -1,12 +1,67 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import FieldReportForm from "./FieldReportForm.jsx";
 
 const shelters = [{ id: "AIT001", name: "Shelter A" }];
 
 describe("FieldReportForm", () => {
+  it("retains input until durable success and blocks rapid submits", async () => {
+    let finish;
+    const submit = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    render(<FieldReportForm shelters={shelters} networkMode="normal" pendingReportCount={0} onSubmitReport={submit} />);
+    fireEvent.change(screen.getByLabelText("報告者名"), { target: { value: "担当者" } });
+    const memo = document.querySelector("textarea");
+    fireEvent.change(memo, { target: { value: "救援が必要" } });
+    fireEvent.submit(document.querySelector("form"));
+    fireEvent.submit(document.querySelector("form"));
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(memo.value).toBe("救援が必要");
+    expect(screen.getByRole("button", { name: "保存・送信中..." }).disabled).toBe(true);
+    await act(async () => finish("queued"));
+    expect(memo.value).toBe("");
+    expect(screen.getByRole("status").textContent).toContain("端末に保存");
+  });
+
+  it("retains memo and reuses the same event ID after send and storage failure", async () => {
+    const submit = vi.fn().mockRejectedValueOnce(new Error("QuotaExceededError")).mockResolvedValue("sent");
+    render(<FieldReportForm shelters={shelters} networkMode="normal" pendingReportCount={0} onSubmitReport={submit} />);
+    const memo = document.querySelector("textarea");
+    fireEvent.change(memo, { target: { value: "保持するメモ" } });
+    fireEvent.submit(document.querySelector("form"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("入力を保持"));
+    expect(memo.value).toBe("保持するメモ");
+    fireEvent.submit(document.querySelector("form"));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("送信しました"));
+    expect(submit.mock.calls[1][0].clientEventId).toBe(submit.mock.calls[0][0].clientEventId);
+    expect(submit.mock.calls[1][0].observedAt).toBe(submit.mock.calls[0][0].observedAt);
+  });
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
+  });
+
+  it("retries unchanged input with a corrected clock after an explicit timestamp rejection", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-27T00:00:00Z"));
+    const submit = vi.fn(async ({ observedAt }) => {
+      if (observedAt > "2026-10-26T00:10:00.000Z") {
+        throw Object.assign(new Error("check the device clock"), {
+          status: 422, body: { detail: "observed_at is more than 10 minutes in the future; check the device clock" },
+        });
+      }
+      return "sent";
+    });
+    render(<FieldReportForm shelters={shelters} networkMode="normal" pendingReportCount={0} onSubmitReport={submit} />);
+    const memo = document.querySelector("textarea");
+    fireEvent.change(memo, { target: { value: "時計を直して再送する報告" } });
+    fireEvent.submit(document.querySelector("form"));
+    await screen.findByRole("alert");
+    expect(memo.value).toBe("時計を直して再送する報告");
+    vi.setSystemTime(new Date("2026-10-26T00:00:00Z"));
+    fireEvent.submit(document.querySelector("form"));
+    await screen.findByRole("status");
+    expect(submit.mock.calls[1][0].observedAt).toBe("2026-10-26T00:00:00.000Z");
+    expect(submit.mock.calls[1][0].clientEventId).toBe(submit.mock.calls[0][0].clientEventId);
   });
 
   it("決定事項27: 手動切替ボタン(通常/オフライン/非常時)が存在しない", () => {

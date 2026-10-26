@@ -15,13 +15,19 @@ import { normalizeIncident } from "../utils/incidents.js";
  */
 export function useIncidents() {
   const [incidents, setIncidents] = useState([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
       const rawIncidents = await fetchIncidents();
       setIncidents(rawIncidents.map(normalizeIncident));
+      setError("");
     } catch (error) {
-      console.error(error);
+      setError("インシデントを取得できませんでした。ログイン状態と通信を確認して再取得してください。");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -29,5 +35,5 @@ export function useIncidents() {
     refresh();
   }, [refresh]);
 
-  return { incidents, refresh };
+  return { incidents, refresh, error, loading };
 }

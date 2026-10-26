@@ -5,11 +5,14 @@ function readCookie(name) {
 }
 
 export class ApiError extends Error {
-  constructor(status, body) {
+  constructor(status, body, retryAfter = null) {
     super(body?.detail || `HTTP ${status}`);
     this.name = "ApiError";
     this.status = status;
     this.body = body;
+    const seconds = Number(retryAfter);
+    this.retryAfterMs = retryAfter === null ? 0 : Number.isFinite(seconds)
+      ? Math.max(0, seconds * 1000) : Math.max(0, Date.parse(retryAfter) - Date.now()) || 0;
   }
 }
 
@@ -24,7 +27,7 @@ async function api(path, options = {}) {
 
   const response = await fetch(path, { credentials: "same-origin", ...options, headers });
   const body = response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) throw new ApiError(response.status, body);
+  if (!response.ok) throw new ApiError(response.status, body, response.headers.get("Retry-After"));
   return body;
 }
 
@@ -81,7 +84,7 @@ export const requestIncidentResolution = (observationId, { staffName, memo, acti
   { method: "POST", body: JSON.stringify({ staff_name: staffName, memo, active_shelter_id: activeShelterId }) },
 );
 
-export const approveIncidentResolutionRequest = (observationId, { approverName }) => api(
+export const approveIncidentResolutionRequest = (observationId, { approverName, requestVersion }) => api(
   `/api/incidents/${encodeURIComponent(observationId)}/resolution-requests/approve`,
-  { method: "POST", body: JSON.stringify({ approver_name: approverName }) },
+  { method: "POST", body: JSON.stringify({ approver_name: approverName, request_version: requestVersion }) },
 );

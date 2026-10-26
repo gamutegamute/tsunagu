@@ -54,9 +54,11 @@ def get_settings() -> Settings:
 
 def validate_runtime_settings() -> None:
     from app.packet_keys import load_device_key_registry
+    from app.auth import shelter_assignments
 
     # 端末台帳の書式誤りは、最初のPacket受信時ではなく起動時に気付けるようにする。
     load_device_key_registry()
+    shelter_assignments()
 
     settings = get_settings()
     if settings.app_env != "production":

@@ -9,10 +9,14 @@ import IncidentManagementTab from "./IncidentManagementTab.jsx";
 import AddShelterModal from "./AddShelterModal.jsx";
 import { useShelterFilters } from "../hooks/useShelterFilters.js";
 import { updateObservationVerification } from "../api.js";
+import { useAuth } from "../auth/AuthContext.jsx";
+import { canOperateShelter } from "../utils/shelterPermissions.js";
 
 /** 本部ダッシュボード全体(Figmaの Headquarters Dashboard 画面を再現)。 */
 export default function Dashboard({ shelterStatusList, onSyncButtonClick }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [verificationError, setVerificationError] = useState("");
   const [activeTabId, setActiveTabId] = useState("status");
   const [isAddShelterModalOpen, setIsAddShelterModalOpen] = useState(false);
   const {
@@ -28,8 +32,13 @@ export default function Dashboard({ shelterStatusList, onSyncButtonClick }) {
   } = useShelterFilters(shelterStatusList);
 
   async function handleVerificationChange(observationId, status) {
-    await updateObservationVerification(observationId, status);
-    await onSyncButtonClick();
+    setVerificationError("");
+    try {
+      await updateObservationVerification(observationId, status);
+      await onSyncButtonClick();
+    } catch {
+      setVerificationError("報告を更新できませんでした。担当割当・ログイン状態・通信を確認してください。");
+    }
   }
 
   return (
@@ -71,6 +80,7 @@ export default function Dashboard({ shelterStatusList, onSyncButtonClick }) {
           />
 
           <DashboardSummary shelterStatusList={shelterStatusList} />
+          {verificationError && <p role="alert">{verificationError}</p>}
 
           <div className="shelter-grid">
             {filteredAndSortedList.map((shelterStatus) => (
@@ -78,7 +88,7 @@ export default function Dashboard({ shelterStatusList, onSyncButtonClick }) {
                 key={shelterStatus.shelter.id}
                 shelterStatus={shelterStatus}
                 onClick={() => navigate(`/dashboard/shelters/${shelterStatus.shelter.id}`)}
-                onVerificationChange={handleVerificationChange}
+                onVerificationChange={user?.role === "hq" && canOperateShelter(user, shelterStatus.shelter.id) ? handleVerificationChange : undefined}
               />
             ))}
           </div>

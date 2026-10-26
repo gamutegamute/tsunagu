@@ -16,9 +16,11 @@ export function packetToShelterStatus(packet, shelterName) {
       reporter_name: "",
       observed_at: packet.received_at,
       source: "emergency_packet",
+      signature_status: packet.signature_status ?? null,
     },
     status: packet.status,
     request_code: packet.request_code && packet.request_code !== "NONE" ? packet.request_code : null,
+    explicit_request_code: packet.request_code && packet.request_code !== "NONE" ? packet.request_code : null,
   };
 }
 

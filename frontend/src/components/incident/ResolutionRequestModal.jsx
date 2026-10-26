@@ -1,18 +1,12 @@
 import { useState } from "react";
-import ActiveShelterChangeDialog from "./ActiveShelterChangeDialog.jsx";
-import { getActiveShelter, setActiveShelter } from "../../utils/activeShelter.js";
+import { getActiveShelter } from "../../utils/activeShelter.js";
 import { STORAGE_KEYS } from "../../utils/storageKeys.js";
-
-function shelterLabel(shelters, shelterId) {
-  const shelter = shelters.find((item) => item.id === shelterId);
-  return shelter ? `${shelter.id} ${shelter.name}` : shelterId;
-}
 
 /**
  * モバイルの「対応済みにする」申請フォーム(決定事項12・23、Figma: Incident/対応確定モーダル)。
  *
  * - メモ・担当者は必須(決定事項12)
- * - アクティブ避難所は直近報告した避難所をデフォルト選択し、選び直すと確認ダイアログを挟む(決定事項23)
+ * - 対象避難所は固定。サーバーがログイン職員の担当割当を照合する。
  * - 送信はあくまで「申請」までで、確定(対応済み)は本部(PC)の承認を待つ(決定事項2・14)
  */
 export default function ResolutionRequestModal({ incident, shelters, onCancel, onSubmit }) {
@@ -20,37 +14,27 @@ export default function ResolutionRequestModal({ incident, shelters, onCancel, o
   const [memo, setMemo] = useState("");
   const [staffName, setStaffName] = useState(lastStaffName);
   const [previousActiveShelterId] = useState(() => getActiveShelter() || incident.shelter.id);
-  const [activeShelterId, setActiveShelterId] = useState(previousActiveShelterId);
-  const [pendingShelterId, setPendingShelterId] = useState(null);
+  const activeShelterId = incident.shelter.id;
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  function handleShelterSelectChange(event) {
-    const newShelterId = event.target.value;
-    if (newShelterId === activeShelterId) return;
-    setPendingShelterId(newShelterId);
-  }
-
-  function confirmShelterChange() {
-    setActiveShelter(pendingShelterId);
-    setActiveShelterId(pendingShelterId);
-    setPendingShelterId(null);
-  }
-
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     const trimmedMemo = memo.trim();
     const trimmedStaffName = staffName.trim();
-    if (!trimmedMemo || !trimmedStaffName) return;
+    if (!trimmedMemo || !trimmedStaffName || submitting) return;
 
-    if (trimmedStaffName) {
-      localStorage.setItem(STORAGE_KEYS.reporterName, trimmedStaffName);
-    }
+    try { localStorage.setItem(STORAGE_KEYS.reporterName, trimmedStaffName); } catch { /* Optional preference. */ }
 
-    onSubmit({
+    setSubmitting(true);
+    setError("");
+    try { await onSubmit({
       memo: trimmedMemo,
       staffName: trimmedStaffName,
       targetShelterId: incident.shelter.id,
       activeShelterId,
-    });
+    }); } catch { setError("申請できませんでした。担当割当・通信・最新の状態を確認してください。"); }
+    finally { setSubmitting(false); }
   }
 
   return (
@@ -66,8 +50,8 @@ export default function ResolutionRequestModal({ incident, shelters, onCancel, o
         <label className="bottom-sheet-field">
           アクティブ避難所(必須)
           <div className="bottom-sheet-select-row">
-            <select value={activeShelterId} onChange={handleShelterSelectChange}>
-              {shelters.map((shelter) => (
+            <select value={activeShelterId} disabled>
+              {shelters.filter((shelter) => shelter.id === incident.shelter.id).map((shelter) => (
                 <option key={shelter.id} value={shelter.id}>
                   {shelter.id} {shelter.name}
                 </option>
@@ -78,7 +62,7 @@ export default function ResolutionRequestModal({ incident, shelters, onCancel, o
               前回: {previousActiveShelterId}
             </span>
           </div>
-          <span className="bottom-sheet-hint">別の避難所を選び直すと確認ダイアログが表示されます</span>
+          <span className="bottom-sheet-hint">申請対象の避難所です。担当割当はサーバーで確認します。</span>
         </label>
 
         <label className="bottom-sheet-field">
@@ -122,20 +106,13 @@ export default function ResolutionRequestModal({ incident, shelters, onCancel, o
           <button type="button" className="secondary-button" onClick={onCancel}>
             キャンセル
           </button>
-          <button type="submit" className="primary-button">
+          <button type="submit" className="primary-button" disabled={submitting}>
             対応済みを申請する
           </button>
         </div>
+        {error && <p role="alert">{error}</p>}
       </form>
 
-      {pendingShelterId && (
-        <ActiveShelterChangeDialog
-          fromShelterLabel={shelterLabel(shelters, activeShelterId)}
-          toShelterLabel={shelterLabel(shelters, pendingShelterId)}
-          onCancel={() => setPendingShelterId(null)}
-          onConfirm={confirmShelterChange}
-        />
-      )}
     </div>
   );
 }

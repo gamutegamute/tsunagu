@@ -79,6 +79,11 @@ export default function ShelterCard({ shelterStatus, onClick, onVerificationChan
 
         {observation && (
           <div className="verification-row" onClick={(event) => event.stopPropagation()}>
+            <span className="signature-status">
+              {observation.signature_status === "SIGNATURE_VALID" ? "送信元: 署名検証済み(v2)"
+                : observation.signature_status === "UNSIGNED_V1" ? "送信元: 署名なし(v1)"
+                  : observation.source === "emergency_packet" ? "送信元: 署名状態不明" : "送信元: Web報告"}
+            </span>
             <span className={`verification-badge ${verificationStatus.toLowerCase()}`}>
               {verificationStatus === "VERIFIED" ? "確認済み" : "未確認"}
             </span>
@@ -93,7 +98,10 @@ export default function ShelterCard({ shelterStatus, onClick, onVerificationChan
 
         <div className="shelter-card-footer">
           <span className="shelter-card-updated">{formatUpdatedAt(observation?.observed_at)}</span>
-          {requestCode && <span className="request-code-chip">{requestCode}</span>}
+          {requestCode && <span className="request-code-chip">{shelterStatus.explicit_request_code ? "要請: " : "補助判定: "}<span>{requestCode}</span></span>}
+          {shelterStatus.derived_request_code && shelterStatus.derived_request_code !== requestCode && (
+            <span className="request-code-chip">補助判定: {shelterStatus.derived_request_code}</span>
+          )}
         </div>
       </div>
     </article>

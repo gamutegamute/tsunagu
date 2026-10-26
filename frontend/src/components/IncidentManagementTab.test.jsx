@@ -7,6 +7,10 @@ vi.mock("../api.js", () => ({
   fetchIncidents: vi.fn(),
 }));
 
+vi.mock("../auth/AuthContext.jsx", () => ({
+  useAuth: () => ({ user: { role: "hq", shelter_ids: ["*"] } }),
+}));
+
 function makeApiIncident(overrides = {}) {
   return {
     id: "OBS-001",

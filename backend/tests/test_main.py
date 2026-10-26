@@ -43,6 +43,30 @@ def observation_payload(**overrides):
     return payload
 
 
+@pytest.mark.parametrize("timestamp", ["2099-01-01T00:00:00Z", "2026-08-06T01:00:00"])
+def test_web_report_rejects_future_or_timezone_less_clock(timestamp):
+    response = client.post("/api/observations", json=observation_payload(observed_at=timestamp))
+    assert response.status_code == 422
+
+
+def test_web_clock_tolerance_and_old_offline_reports(monkeypatch):
+    now = datetime(2026, 10, 26, 12, tzinfo=timezone.utc)
+    monkeypatch.setattr(main_module, "_current_utc_time", lambda: now)
+    shelter_id = f"CLOCK{uuid4().hex[:8]}"
+    assert client.post("/api/shelters", json={"id": shelter_id, "name": "Clock test"}).status_code == 201
+    boundary = client.post("/api/observations", json=observation_payload(shelter_id=shelter_id, observed_at=(now + timedelta(minutes=10)).isoformat()))
+    assert boundary.status_code == 201
+    assert datetime.fromisoformat(boundary.json()["observed_at"].replace("Z", "+00:00")) == now
+    assert client.post("/api/observations", json=observation_payload(shelter_id=shelter_id, observed_at=(now + timedelta(minutes=10, seconds=1)).isoformat())).status_code == 422
+    # A timezone offset representing the same UTC instant is accepted.
+    current = client.post("/api/observations", json=observation_payload(shelter_id=shelter_id, observed_at="2026-10-26T21:00:00+09:00", urgency="CRITICAL"))
+    assert current.status_code == 201
+    old = client.post("/api/observations", json=observation_payload(shelter_id=shelter_id, source="offline", observed_at=(now - timedelta(days=7)).isoformat()))
+    assert old.status_code == 201
+    item = next(item for item in client.get("/api/dashboard").json() if item["shelter"]["id"] == shelter_id)
+    assert item["latest_observation"]["id"] == current.json()["id"]
+
+
 def test_rate_limiter_rejects_requests_over_limit():
     limiter = SlidingWindowRateLimiter(limit=2, window_seconds=60)
 

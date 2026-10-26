@@ -23,7 +23,7 @@ const TABS = [
  * 「一覧」タブを追加した4タブ構成(未確認→一覧→確認済み→対応済み)。
  */
 export default function IncidentManagementTab() {
-  const { incidents, refresh } = useIncidents();
+  const { incidents, refresh, error, loading } = useIncidents();
   const [activeTabId, setActiveTabId] = useState("unconfirmed");
 
   const visibleIncidents = incidents.filter((incident) => {
@@ -37,13 +37,15 @@ export default function IncidentManagementTab() {
     <div className="incident-management-tab">
       <div className="section-header-row">
         <h3>インシデント管理(全避難所)</h3>
-        <p className="incident-header-note-dark">閲覧は全エリア可・対応確定は担当エリアのみ(承認制)</p>
+        <p className="incident-header-note-dark">閲覧は全避難所・確認と対応確定は担当する本部職員のみ</p>
       </div>
 
       <StatusFilterTabs tabs={TABS} activeTabId={activeTabId} onChangeTab={setActiveTabId} />
 
       <div className="shelter-detail-incident-grid">
-        {visibleIncidents.length === 0 && <p className="incident-empty-state">該当するインシデントはありません</p>}
+        {loading && <p role="status">読み込み中...</p>}
+        {error && <p role="alert">{error}<button type="button" onClick={refresh}>再取得</button></p>}
+        {!loading && !error && visibleIncidents.length === 0 && <p className="incident-empty-state">該当するインシデントはありません</p>}
         {visibleIncidents.map((incident) => (
           <PcIncidentCard key={incident.id} incident={incident} onChanged={refresh} />
         ))}

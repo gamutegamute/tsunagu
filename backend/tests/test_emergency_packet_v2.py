@@ -103,6 +103,41 @@ def post_packet(packet: str, hub_received_at: datetime | None = None):
     return client.post("/api/emergency-packets", json=body)
 
 
+@pytest.mark.parametrize("request_code", ["REQ_RESCUE", "REQ_MEDICAL", "REQ_FOOD"])
+def test_dashboard_keeps_exact_latest_packet_request_and_signature(request_code):
+    client.post("/api/auth/dev-login", json={"role": "hq"})
+    client.headers["X-CSRF-Token"] = client.cookies.get("tsunagu_csrf")
+    shelter_id = f"T{uuid4().hex[:5]}".upper()
+    assert client.post("/api/shelters", json={"id": shelter_id, "name": "Packet request test"}).status_code == 201
+    accepted = post_packet(make_packet(shelter_code=shelter_id, request_code=request_code, water_stock=1, status="CRITICAL"))
+    assert accepted.status_code == 201
+    item = next(item for item in client.get("/api/dashboard").json() if item["shelter"]["id"] == shelter_id)
+    assert item["request_code"] == request_code
+    assert item["explicit_request_code"] == request_code
+    assert item["derived_request_code"] == "REQ_WATER"
+    assert item["latest_observation"]["signature_status"] == "SIGNATURE_VALID"
+    assert item["latest_observation"]["id"] == accepted.json()["observation_id"]
+    web = client.post("/api/observations", json={"shelter_id": shelter_id, "people_count": 1, "water_stock": 100})
+    assert web.status_code == 201
+    item = next(item for item in client.get("/api/dashboard").json() if item["shelter"]["id"] == shelter_id)
+    assert item["latest_observation"]["id"] == web.json()["id"]
+    assert item["latest_observation"]["signature_status"] is None
+    assert item["request_code"] is None
+    assert item["explicit_request_code"] is None
+
+
+def test_v1_dashboard_signature_and_explicit_request():
+    client.post("/api/auth/dev-login", json={"role": "hq"})
+    client.headers["X-CSRF-Token"] = client.cookies.get("tsunagu_csrf")
+    shelter_id = f"T{uuid4().hex[:5]}".upper()
+    assert client.post("/api/shelters", json={"id": shelter_id, "name": "V1 request test"}).status_code == 201
+    time = datetime.now(timezone(timedelta(hours=9))).strftime("%H:%M")
+    assert post_packet(f"v1|{shelter_id}|{time}|1|100|CRITICAL|REQ_RESCUE").status_code == 201
+    item = next(item for item in client.get("/api/dashboard").json() if item["shelter"]["id"] == shelter_id)
+    assert item["request_code"] == "REQ_RESCUE"
+    assert item["latest_observation"]["signature_status"] == "UNSIGNED_V1"
+
+
 def packets_for(install_id: str) -> list[dict]:
     with get_conn() as conn:
         return conn.execute(

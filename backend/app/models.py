@@ -100,6 +100,8 @@ class ShelterStatus(BaseModel):
     latest_observation: Observation | None
     status: str
     request_code: str | None
+    explicit_request_code: str | None = None
+    derived_request_code: str | None = None
 
 
 class IncidentState(BaseModel):
@@ -111,6 +113,7 @@ class IncidentState(BaseModel):
     resolution_request_staff_name: str | None = None
     resolution_request_active_shelter_id: str | None = None
     resolution_request_at: datetime | None = None
+    resolution_request_version: int = 0
     resolution_memo: str | None = None
     resolution_staff_name: str | None = None
     resolution_approver_name: str | None = None
@@ -145,6 +148,7 @@ class IncidentResolutionRequestCreate(BaseModel):
 
 class IncidentResolutionApproveRequest(BaseModel):
     approver_name: str = Field(min_length=1, max_length=120)
+    request_version: int = Field(ge=0)
 
 
 class EmergencyPacket(BaseModel):

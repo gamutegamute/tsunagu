@@ -32,7 +32,7 @@ createRoot(document.getElementById("root")).render(
           <Route path="/field-report" element={<FieldReportPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/incident" element={<RequireApprover><IncidentPage /></RequireApprover>} />
+          <Route path="/incident" element={<RequireApprover allowField><IncidentPage /></RequireApprover>} />
           <Route
             path="/dashboard"
             element={

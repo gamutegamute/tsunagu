@@ -9,7 +9,7 @@ export default function LoginPage() {
   const from = location.state?.from || "/dashboard";
 
   if (!loading && user) {
-    return <Navigate to={user.role === "hq" ? from : "/field-report"} replace />;
+    return <Navigate to={user.role === "hq" || from === "/incident" ? from : "/field-report"} replace />;
   }
 
   async function handleDevelopmentLogin(role) {

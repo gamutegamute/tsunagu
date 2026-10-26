@@ -15,7 +15,7 @@ function formatObservedAt(observedAtIso, variant) {
  * Incident1件分のカード(Figmaの IncidentCard コンポーネントを再現)。
  * ボタン等の操作行はモバイル/PCで内容が異なるため actions として差し込む。
  */
-export default function IncidentCard({ incident, variant = "mobile", assigneeLabel, statusNote, resolutionInfo, actions }) {
+export default function IncidentCard({ incident, variant = "mobile", assigneeLabel, statusNote, resolutionInfo, actions, feedback }) {
   return (
     <article className="incident-card">
       <div className="incident-card-title-row">
@@ -51,6 +51,7 @@ export default function IncidentCard({ incident, variant = "mobile", assigneeLab
         </div>
       )}
       {actions && <div className="incident-card-action-row">{actions}</div>}
+      {feedback}
     </article>
   );
 }

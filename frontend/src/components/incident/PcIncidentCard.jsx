@@ -4,6 +4,8 @@ import PcActionModal from "./PcActionModal.jsx";
 import { isResolved, isPendingApproval, describeIncidentDisplay } from "../../utils/incidents.js";
 import { confirmIncident, resolveIncidentDirectly, approveResolutionRequest } from "../../utils/incidentStore.js";
 import { getApproverName } from "../../utils/approverName.js";
+import { useAuth } from "../../auth/AuthContext.jsx";
+import { canOperateShelter } from "../../utils/shelterPermissions.js";
 
 /**
  * PC(本部)向けのIncidentカード(決定事項1・2・7・12・14)。
@@ -11,12 +13,24 @@ import { getApproverName } from "../../utils/approverName.js";
  */
 export default function PcIncidentCard({ incident, onChanged }) {
   const [activeModal, setActiveModal] = useState(null); // "confirm" | "resolve" | null
+  const [error, setError] = useState("");
+  const [approving, setApproving] = useState(false);
+  const { user } = useAuth();
   const approverName = getApproverName();
   const { assigneeLabel, statusNote, resolutionInfo } = describeIncidentDisplay(incident);
 
   async function handleApprove() {
-    await approveResolutionRequest(incident.id, { approverName });
-    onChanged();
+    setApproving(true);
+    setError("");
+    try {
+      await approveResolutionRequest(incident.id, { approverName, requestVersion: incident.resolutionRequest.version });
+      await onChanged();
+    } catch (error) {
+      setError(error.status === 409 ? "申請内容が更新されたか、すでに承認されています。最新の内容を確認してください。" : "承認できませんでした。通信と権限を確認してください。");
+      if (error.status === 409) await onChanged();
+    } finally {
+      setApproving(false);
+    }
   }
 
   async function handleConfirmSubmit(memo) {
@@ -35,9 +49,9 @@ export default function PcIncidentCard({ incident, onChanged }) {
   const resolved = isResolved(incident);
 
   const actions =
-    !resolved &&
+    !resolved && user?.role === "hq" && canOperateShelter(user, incident.shelter.id) &&
     (pending ? (
-      <button type="button" className="primary-button" onClick={handleApprove}>
+      <button type="button" className="primary-button" onClick={handleApprove} disabled={approving}>
         承認する(本部)
       </button>
     ) : (
@@ -59,9 +73,10 @@ export default function PcIncidentCard({ incident, onChanged }) {
         incident={incident}
         variant="pc"
         assigneeLabel={assigneeLabel}
-        statusNote={statusNote}
+        statusNote={pending ? `${statusNote} / 申請内容: ${incident.resolutionRequest.memo}` : statusNote}
         resolutionInfo={resolutionInfo}
         actions={actions}
+        feedback={error && <p role="alert">{error}</p>}
       />
 
       {activeModal === "confirm" && (
