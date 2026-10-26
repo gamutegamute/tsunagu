@@ -4,6 +4,8 @@ import { STORAGE_KEYS } from "./storageKeys.js";
 const DATABASE_NAME = "tsunagu-offline";
 const DATABASE_VERSION = 1;
 const STORE_NAME = "pendingReports";
+const LOCK_NAME = "tsunagu-pending-reports";
+const FALLBACK_PREFIX = `${STORAGE_KEYS.pendingReportsFallback}.report.`;
 
 let databasePromise;
 let indexedDbUnavailable = false;
@@ -11,7 +13,9 @@ let storeOperation = Promise.resolve();
 
 // Serialize migrations and mutations so a late migration cannot restore a deleted row.
 function serialize(operation) {
-  const result = storeOperation.then(operation);
+  const result = storeOperation.then(() => navigator.locks?.request
+    ? navigator.locks.request(LOCK_NAME, operation)
+    : operation());
   storeOperation = result.catch(() => {});
   return result;
 }
@@ -78,20 +82,38 @@ async function migrateLegacyReports() {
 // This journal is separate from the already-migrated legacy queue. Null entries
 // are durable deletions when IndexedDB is temporarily unavailable.
 function readFallback() {
-  return loadJson(STORAGE_KEYS.pendingReportsFallback, {});
+  const reports = { ...loadJson(STORAGE_KEYS.pendingReportsFallback, {}) };
+  for (const key of fallbackKeys()) {
+    const entry = loadJson(key, null);
+    if (entry) reports[entry.id] = entry.report;
+  }
+  return reports;
+}
+
+function fallbackKeys() {
+  return Object.keys(localStorage).filter((key) => key.startsWith(FALLBACK_PREFIX));
 }
 
 function writeFallback(id, report) {
-  localStorage.setItem(STORAGE_KEYS.pendingReportsFallback, JSON.stringify({ ...readFallback(), [id]: report }));
+  // Different reports never overwrite a shared read-modify-write snapshot.
+  localStorage.setItem(`${FALLBACK_PREFIX}${encodeURIComponent(id)}`, JSON.stringify({ id, report }));
 }
 
 async function reconcileFallback() {
+  const legacySnapshot = localStorage.getItem(STORAGE_KEYS.pendingReportsFallback);
+  const snapshots = fallbackKeys().map((key) => [key, localStorage.getItem(key)]);
   const entries = Object.entries(readFallback());
   for (const [id, report] of entries) {
     await runTransaction("readwrite", (store) => report === null ? store.delete(id) : store.put(report));
   }
-  // Only discard the journal after every transaction has committed.
-  if (entries.length) localStorage.removeItem(STORAGE_KEYS.pendingReportsFallback);
+  // Never clear the whole journal: another window may have added a report.
+  // Web Locks also serialize recovery/deletion across windows when available.
+  for (const [key, value] of snapshots) {
+    if (localStorage.getItem(key) === value) localStorage.removeItem(key);
+  }
+  if (legacySnapshot !== null && localStorage.getItem(STORAGE_KEYS.pendingReportsFallback) === legacySnapshot) {
+    localStorage.removeItem(STORAGE_KEYS.pendingReportsFallback);
+  }
 }
 
 function fallbackReports() {

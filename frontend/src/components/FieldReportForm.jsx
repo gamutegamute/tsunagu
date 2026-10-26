@@ -62,6 +62,8 @@ export default function FieldReportForm({
     const fingerprint = JSON.stringify(fields);
     if (lastAttempt.current?.fingerprint !== fingerprint) {
       lastAttempt.current = { fingerprint, clientEventId: createClientEventId(), observedAt: new Date().toISOString() };
+    } else if (lastAttempt.current.refreshObservedAt) {
+      lastAttempt.current = { ...lastAttempt.current, observedAt: new Date().toISOString(), refreshObservedAt: false };
     }
     submitting.current = true;
     setIsSubmitting(true);
@@ -73,6 +75,11 @@ export default function FieldReportForm({
       lastAttempt.current = null;
       setSubmitMessage(result === "queued" ? "端末に保存しました。接続後に再送します。" : "報告を送信しました。");
     } catch (error) {
+      // The API explicitly rejected this timestamp; a corrected device clock
+      // must be used on retry. Ambiguous delivery/storage failures retain it.
+      if (error.status === 422 && typeof error.body?.detail === "string" && error.body.detail.startsWith("observed_at ")) {
+        lastAttempt.current.refreshObservedAt = true;
+      }
       setSubmitError(`送信・保存できませんでした。入力を保持しています。${error.message || "再試行してください。"}`);
     } finally {
       submitting.current = false;

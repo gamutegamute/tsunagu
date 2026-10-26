@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router";
 import FieldReportPage from "./FieldReportPage.jsx";
 import { STORAGE_KEYS } from "../utils/storageKeys.js";
+import { getPendingReports } from "../utils/pendingReports.js";
 
 vi.mock("../auth/AuthContext.jsx", () => ({
   useAuth: () => ({ user: null, signOut: vi.fn() }),
@@ -31,10 +32,6 @@ async function submitReport() {
   fireEvent.click(screen.getByRole("button", { name: "報告する" }));
 }
 
-function readPendingReports() {
-  return Object.values(JSON.parse(localStorage.getItem(STORAGE_KEYS.pendingReportsFallback) || "{}"));
-}
-
 describe("FieldReportPage — 決定事項29: オフライン中の報告は未送信キューに保存するのみ", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -51,7 +48,7 @@ describe("FieldReportPage — 決定事項29: オフライン中の報告は未�
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network failure")));
     const setItem = Storage.prototype.setItem;
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (key, value) {
-      if (key === STORAGE_KEYS.pendingReportsFallback) throw new DOMException("storage full", "QuotaExceededError");
+      if (key.startsWith(STORAGE_KEYS.pendingReportsFallback)) throw new DOMException("storage full", "QuotaExceededError");
       return setItem.call(this, key, value);
     });
     renderPage();
@@ -69,7 +66,7 @@ describe("FieldReportPage — 決定事項29: オフライン中の報告は未�
     await submitReport();
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("端末に保存"));
 
-    const pending = readPendingReports();
+    const pending = await getPendingReports();
     expect(pending).toHaveLength(1);
     expect(pending[0]).toMatchObject({ shelter_id: "AIT001", reporter_name: "テスト太郎", source: "offline" });
   });
@@ -82,7 +79,7 @@ describe("FieldReportPage — 決定事項29: オフライン中の報告は未�
     await submitReport();
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("端末に保存"));
 
-    const pending = readPendingReports();
+    const pending = await getPendingReports();
     expect(pending).toHaveLength(1);
     expect(pending[0]).toMatchObject({ shelter_id: "AIT001", reporter_name: "テスト太郎", source: "offline" });
   });

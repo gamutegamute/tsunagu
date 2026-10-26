@@ -37,6 +37,31 @@ describe("FieldReportForm", () => {
   });
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
+  });
+
+  it("retries unchanged input with a corrected clock after an explicit timestamp rejection", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-27T00:00:00Z"));
+    const submit = vi.fn(async ({ observedAt }) => {
+      if (observedAt > "2026-10-26T00:10:00.000Z") {
+        throw Object.assign(new Error("check the device clock"), {
+          status: 422, body: { detail: "observed_at is more than 10 minutes in the future; check the device clock" },
+        });
+      }
+      return "sent";
+    });
+    render(<FieldReportForm shelters={shelters} networkMode="normal" pendingReportCount={0} onSubmitReport={submit} />);
+    const memo = document.querySelector("textarea");
+    fireEvent.change(memo, { target: { value: "時計を直して再送する報告" } });
+    fireEvent.submit(document.querySelector("form"));
+    await screen.findByRole("alert");
+    expect(memo.value).toBe("時計を直して再送する報告");
+    vi.setSystemTime(new Date("2026-10-26T00:00:00Z"));
+    fireEvent.submit(document.querySelector("form"));
+    await screen.findByRole("status");
+    expect(submit.mock.calls[1][0].observedAt).toBe("2026-10-26T00:00:00.000Z");
+    expect(submit.mock.calls[1][0].clientEventId).toBe(submit.mock.calls[0][0].clientEventId);
   });
 
   it("決定事項27: 手動切替ボタン(通常/オフライン/非常時)が存在しない", () => {

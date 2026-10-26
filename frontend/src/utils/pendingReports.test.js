@@ -16,6 +16,10 @@ const report = {
   observed_at: "2026-08-06T02:00:00.000Z",
 };
 
+function journalEntry(id) {
+  return JSON.parse(localStorage.getItem(`${STORAGE_KEYS.pendingReportsFallback}.report.${encodeURIComponent(id)}`));
+}
+
 async function clearQueue() {
   for (const item of await getPendingReports()) {
     await removePendingReport(item.client_event_id);
@@ -59,7 +63,7 @@ describe("pending report store", () => {
       return request;
     });
     await addPendingReport(report);
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.pendingReportsFallback))[report.client_event_id]).toEqual(report);
+    expect(journalEntry(report.client_event_id).report).toEqual(report);
     vi.restoreAllMocks();
     resetPendingReportStoreForTests(); // Reload with a healthy IndexedDB.
     await expect(getPendingReports()).resolves.toEqual([report]);
@@ -78,7 +82,7 @@ describe("pending report store", () => {
       return request;
     });
     await removePendingReport(report.client_event_id);
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.pendingReportsFallback))[report.client_event_id]).toBeNull();
+    expect(journalEntry(report.client_event_id).report).toBeNull();
     vi.restoreAllMocks();
     resetPendingReportStoreForTests();
     await expect(getPendingReports()).resolves.toEqual([]);
@@ -123,5 +127,79 @@ describe("pending report store", () => {
     await expect(getPendingReports()).resolves.toHaveLength(2);
     await expect(getPendingReportCount()).resolves.toBe(2);
     expect(localStorage.getItem(STORAGE_KEYS.pendingReportsFallback)).toBeNull();
+  });
+
+  async function independentStores() {
+    vi.resetModules();
+    const offlineTab = await import("./pendingReports.js");
+    await offlineTab.getPendingReports();
+    const fail = vi.spyOn(IDBDatabase.prototype, "transaction").mockImplementation(() => { throw new Error("unavailable"); });
+    await offlineTab.getPendingReports();
+    fail.mockRestore();
+    vi.resetModules();
+    return { offlineTab, recoveringTab: await import("./pendingReports.js") };
+  }
+
+  it("preserves a report saved by another window during recovery without Web Locks", async () => {
+    const { offlineTab, recoveringTab } = await independentStores();
+    const second = { ...report, client_event_id: "other-window" };
+    localStorage.setItem(STORAGE_KEYS.pendingReportsFallback, JSON.stringify({ [report.client_event_id]: report }));
+    const put = IDBObjectStore.prototype.put;
+    let addition;
+    vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (value) {
+      const request = put.call(this, value);
+      if (value.client_event_id === report.client_event_id) {
+        request.addEventListener("success", () => { addition = offlineTab.addPendingReport(second); });
+      }
+      return request;
+    });
+    await recoveringTab.getPendingReports();
+    await addition;
+    expect(journalEntry(second.client_event_id).report).toEqual(second);
+    await expect(recoveringTab.getPendingReports()).resolves.toEqual(expect.arrayContaining([report, second]));
+  });
+
+  it("keeps a replacement deletion written while a journal entry is being recovered", async () => {
+    const { offlineTab, recoveringTab } = await independentStores();
+    await offlineTab.addPendingReport(report);
+    const put = IDBObjectStore.prototype.put;
+    let deletion;
+    vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (value) {
+      const request = put.call(this, value);
+      request.addEventListener("success", () => { deletion = offlineTab.removePendingReport(value.client_event_id); });
+      return request;
+    });
+    await recoveringTab.getPendingReports();
+    await deletion;
+    expect(journalEntry(report.client_event_id).report).toBeNull();
+    await expect(recoveringTab.getPendingReports()).resolves.toEqual([]);
+  });
+
+  it("serializes independent windows with the same Web Lock", async () => {
+    let tail = Promise.resolve();
+    const requestLock = vi.fn((name, operation) => {
+      const result = tail.then(operation);
+      tail = result.catch(() => {});
+      return result;
+    });
+    Object.defineProperty(navigator, "locks", { configurable: true, value: { request: requestLock } });
+    try {
+      const { offlineTab, recoveringTab } = await independentStores();
+      const second = { ...report, client_event_id: "locked-window" };
+      await offlineTab.addPendingReport(report);
+      const put = IDBObjectStore.prototype.put;
+      let addition;
+      vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (value) {
+        const req = put.call(this, value);
+        if (value.client_event_id === report.client_event_id) req.addEventListener("success", () => { addition = offlineTab.addPendingReport(second); });
+        return req;
+      });
+      await recoveringTab.getPendingReports();
+      await addition;
+      await expect(recoveringTab.getPendingReports()).resolves.toEqual(expect.arrayContaining([report, second]));
+      expect(requestLock.mock.calls.every(([name]) => name === "tsunagu-pending-reports")).toBe(true);
+    } finally {
+      delete navigator.locks;
+    }
   });
 });
