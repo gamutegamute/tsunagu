@@ -49,6 +49,7 @@ variable "shelter_assignments" {
   description = "Account email to assigned shelter IDs. Only HQ may use * for all shelters. Unassigned accounts are read-only for incident operations."
   type        = map(list(string))
   default     = {}
+  sensitive   = true
 }
 
 variable "field_emails" {

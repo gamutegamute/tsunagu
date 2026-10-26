@@ -20,6 +20,7 @@ export function packetToShelterStatus(packet, shelterName) {
     },
     status: packet.status,
     request_code: packet.request_code && packet.request_code !== "NONE" ? packet.request_code : null,
+    explicit_request_code: packet.request_code && packet.request_code !== "NONE" ? packet.request_code : null,
   };
 }
 

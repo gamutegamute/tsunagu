@@ -98,7 +98,7 @@ export default function ShelterCard({ shelterStatus, onClick, onVerificationChan
 
         <div className="shelter-card-footer">
           <span className="shelter-card-updated">{formatUpdatedAt(observation?.observed_at)}</span>
-          {requestCode && <span className="request-code-chip">{requestCode}</span>}
+          {requestCode && <span className="request-code-chip">{shelterStatus.explicit_request_code ? "要請: " : "補助判定: "}<span>{requestCode}</span></span>}
           {shelterStatus.derived_request_code && shelterStatus.derived_request_code !== requestCode && (
             <span className="request-code-chip">補助判定: {shelterStatus.derived_request_code}</span>
           )}

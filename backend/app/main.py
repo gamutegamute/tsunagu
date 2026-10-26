@@ -494,6 +494,7 @@ def dashboard(_: AuthUser = Depends(require_hq)) -> list[dict]:
 
     items = []
     for row in rows:
+        explicit_request = row["explicit_request_code"] if row["explicit_request_code"] not in {None, "NONE"} else None
         observation = None
         if row["observation_id"] is not None:
             observation = {
@@ -531,8 +532,8 @@ def dashboard(_: AuthUser = Depends(require_hq)) -> list[dict]:
                 },
                 "latest_observation": observation,
                 "status": status,
-                "request_code": (row["explicit_request_code"] if row["explicit_request_code"] not in {None, "NONE"} else None)
-                    or decide_request_code(water_stock=row["water_stock"], status=status),
+                "request_code": explicit_request or decide_request_code(water_stock=row["water_stock"], status=status),
+                "explicit_request_code": explicit_request,
                 "derived_request_code": decide_request_code(water_stock=row["water_stock"], status=status),
             }
         )

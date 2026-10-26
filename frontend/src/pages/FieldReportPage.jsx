@@ -31,7 +31,7 @@ import AuthStatus from "../components/AuthStatus.jsx";
  */
 export default function FieldReportPage() {
   const shelters = useShelterList();
-  const { pendingReportCount, isSyncing, syncError, addReportToPendingQueue, sendPendingReports } = useOfflineReportQueue();
+  const { pendingReportCount, isSyncing, syncError, addReportToPendingQueue, sendPendingReports, retryPendingReports } = useOfflineReportQueue();
 
   // 通信が復活したら、この端末の保留中の報告を再送する
   const [networkMode, offlinePhase] = useNetworkMode(() => {
@@ -102,7 +102,7 @@ export default function FieldReportPage() {
           offlinePhase={offlinePhase}
           pendingReportCount={pendingReportCount}
           isSyncing={isSyncing}
-          onSyncPendingReports={sendPendingReports}
+          onSyncPendingReports={retryPendingReports}
           onSubmitReport={handleSubmitReport}
         />
       </main>

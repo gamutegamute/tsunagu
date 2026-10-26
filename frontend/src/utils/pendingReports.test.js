@@ -106,4 +106,22 @@ describe("pending report store", () => {
     localStorage.setItem(STORAGE_KEYS.pendingReports, JSON.stringify([report]));
     await expect(getPendingReports()).resolves.toEqual([]);
   });
+
+  it("retains the journal after a partial recovery and merges it idempotently on retry", async () => {
+    const second = { ...report, client_event_id: "event-2" };
+    localStorage.setItem(STORAGE_KEYS.pendingReportsFallback, JSON.stringify({ "event-1": report, "event-2": second }));
+    const put = IDBObjectStore.prototype.put;
+    vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (value) {
+      const request = put.call(this, value);
+      if (value.client_event_id === "event-2") request.addEventListener("success", () => this.transaction.abort());
+      return request;
+    });
+    await expect(getPendingReports()).resolves.toHaveLength(2);
+    expect(Object.keys(JSON.parse(localStorage.getItem(STORAGE_KEYS.pendingReportsFallback)))).toHaveLength(2);
+    vi.restoreAllMocks();
+    resetPendingReportStoreForTests();
+    await expect(getPendingReports()).resolves.toHaveLength(2);
+    await expect(getPendingReportCount()).resolves.toBe(2);
+    expect(localStorage.getItem(STORAGE_KEYS.pendingReportsFallback)).toBeNull();
+  });
 });

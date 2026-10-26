@@ -100,6 +100,7 @@ class ShelterStatus(BaseModel):
     latest_observation: Observation | None
     status: str
     request_code: str | None
+    explicit_request_code: str | None = None
     derived_request_code: str | None = None
 
 

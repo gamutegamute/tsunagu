@@ -85,6 +85,7 @@ T-Beam送信機がLoRa送出に成功した時点では、本部での受信ま�
 - 報告履歴、避難所詳細、水在庫の簡易的な推移・予測
 - インシデントの確認、対応済み申請、承認フロー
 - Googleログインによる本部ロール管理
+- ログインした職員の担当避難所に基づくインシデント操作の制限
 - Emergency Packetの構文検証、受信ログ保存、ダッシュボードへの反映
 - T-Beam送受信、USBシリアル、Pythonゲートウェイを通じたLoRa連携
 - Dockerによるローカル起動、TerraformとGitHub ActionsによるAWSデプロイ
@@ -143,6 +144,8 @@ docker compose down
 ```
 
 ## テスト
+
+担当避難所の設定、認可契約、Issue #8〜#18の変更理由と検証範囲は [対応記録](docs/issue-fixes-2026-10-26.md) に記載しています。インシデントの申請にはログインと担当割当が必要です。
 
 ```powershell
 docker compose exec api env PYTHONPATH=. pytest

@@ -20,7 +20,7 @@ export default function ShelterDetailPage() {
   const navigate = useNavigate();
   const shelters = useShelterList();
   const { dashboardItems, emergencyPackets, reloadDashboard } = useDashboardData();
-  const { incidents, refresh: refreshIncidents } = useIncidents();
+  const { incidents, refresh: refreshIncidents, error: incidentError, loading: incidentsLoading } = useIncidents();
 
   useEffect(() => {
     reloadDashboard();
@@ -69,7 +69,9 @@ export default function ShelterDetailPage() {
             <p className="incident-header-note incident-header-note-dark">確認済みにする・承認は本部(PC)のみ操作可能</p>
           </div>
           <div className="shelter-detail-incident-grid">
-            {shelterIncidents.length === 0 && <p className="incident-empty-state">この避難所のインシデントはありません</p>}
+            {incidentsLoading && <p role="status">読み込み中...</p>}
+            {incidentError && <p role="alert">{incidentError}<button type="button" onClick={refreshIncidents}>再取得</button></p>}
+            {!incidentsLoading && !incidentError && shelterIncidents.length === 0 && <p className="incident-empty-state">この避難所のインシデントはありません</p>}
             {shelterIncidents.map((incident) => (
               <PcIncidentCard
                 key={incident.id}

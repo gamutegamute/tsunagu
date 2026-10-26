@@ -113,6 +113,7 @@ def test_dashboard_keeps_exact_latest_packet_request_and_signature(request_code)
     assert accepted.status_code == 201
     item = next(item for item in client.get("/api/dashboard").json() if item["shelter"]["id"] == shelter_id)
     assert item["request_code"] == request_code
+    assert item["explicit_request_code"] == request_code
     assert item["derived_request_code"] == "REQ_WATER"
     assert item["latest_observation"]["signature_status"] == "SIGNATURE_VALID"
     assert item["latest_observation"]["id"] == accepted.json()["observation_id"]
@@ -122,6 +123,7 @@ def test_dashboard_keeps_exact_latest_packet_request_and_signature(request_code)
     assert item["latest_observation"]["id"] == web.json()["id"]
     assert item["latest_observation"]["signature_status"] is None
     assert item["request_code"] is None
+    assert item["explicit_request_code"] is None
 
 
 def test_v1_dashboard_signature_and_explicit_request():

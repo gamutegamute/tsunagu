@@ -73,12 +73,11 @@ export default function PcIncidentCard({ incident, onChanged }) {
         incident={incident}
         variant="pc"
         assigneeLabel={assigneeLabel}
-        statusNote={statusNote}
+        statusNote={pending ? `${statusNote} / 申請内容: ${incident.resolutionRequest.memo}` : statusNote}
         resolutionInfo={resolutionInfo}
         actions={actions}
+        feedback={error && <p role="alert">{error}</p>}
       />
-      {pending && <p>申請内容: {incident.resolutionRequest.memo}</p>}
-      {error && <p role="alert">{error}</p>}
 
       {activeModal === "confirm" && (
         <PcActionModal

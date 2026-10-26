@@ -62,10 +62,10 @@ describe("incidentStore.js(決定事項34-a/34-b: API呼び出しへの薄いラ
     });
   });
 
-  it("approveResolutionRequest: 承認APIをapproverNameで呼ぶ", async () => {
-    await approveResolutionRequest("OBS-001", { approverName: "本部 太郎" });
+  it("approveResolutionRequest: 承認APIに表示した申請の版を渡す", async () => {
+    await approveResolutionRequest("OBS-001", { approverName: "本部 太郎", requestVersion: 2 });
 
-    expect(approveIncidentResolutionRequest).toHaveBeenCalledWith("OBS-001", { approverName: "本部 太郎" });
+    expect(approveIncidentResolutionRequest).toHaveBeenCalledWith("OBS-001", { approverName: "本部 太郎", requestVersion: 2 });
   });
 
   it("各関数はAPIレスポンスをそのまま返す", async () => {

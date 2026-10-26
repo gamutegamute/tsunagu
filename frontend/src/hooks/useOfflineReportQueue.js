@@ -73,6 +73,15 @@ export function useOfflineReportQueue() {
     }
   }, [refreshPendingReportCount]);
 
+  const retryPendingReports = useCallback(async () => {
+    // An explicit retry can follow corrected input/server configuration. Keep
+    // transient Retry-After deadlines intact even for a manual sync.
+    for (const [id, attempt] of attempts.current) {
+      if (attempt.blocked) attempts.current.delete(id);
+    }
+    await sendPendingReports();
+  }, [sendPendingReports]);
+
   useEffect(() => {
     if (!pendingReportCount || isSyncing) return;
     const retryable = [...attempts.current.values()].filter((attempt) => !attempt.blocked);
@@ -86,5 +95,5 @@ export function useOfflineReportQueue() {
     return () => window.clearTimeout(timer);
   }, [pendingReportCount, isSyncing, scheduleVersion, sendPendingReports]);
 
-  return { pendingReportCount, isSyncing, syncError, addReportToPendingQueue, sendPendingReports };
+  return { pendingReportCount, isSyncing, syncError, addReportToPendingQueue, sendPendingReports, retryPendingReports };
 }
