@@ -1,4 +1,6 @@
 from uuid import uuid4
+from concurrent.futures import ThreadPoolExecutor
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -49,7 +51,7 @@ def login_as(role: str, name: str = "Test User") -> None:
     client.headers["X-CSRF-Token"] = client.cookies.get("tsunagu_csrf")
 
 
-def test_list_incidents_requires_hq_auth():
+def test_list_incidents_requires_login():
     client.cookies.clear()
     response = client.get("/api/incidents")
     assert response.status_code == 401
@@ -201,11 +203,10 @@ def test_resolve_incident_requires_hq():
     assert response.status_code == 403
 
 
-def test_request_incident_resolution_allows_anonymous_mobile_client():
-    """決定事項7: モバイル(現場)はログイン不要のため、未ログインでも申請できること。"""
+def test_request_incident_resolution_allows_assigned_field_client():
+    """Issue #18: 申請にはログインとサーバー側の担当割当が必要。"""
     observation = create_observation(memo="モバイルからの申請対象")
-    client.cookies.clear()
-    client.headers.pop("X-CSRF-Token", None)
+    login_as("field")
 
     response = client.post(
         f"/api/incidents/{observation['id']}/resolution-requests",
@@ -239,7 +240,7 @@ def test_approve_resolution_request_copies_request_into_resolution():
 
     response = client.post(
         f"/api/incidents/{observation['id']}/resolution-requests/approve",
-        json={"approver_name": "本部 太郎"},
+        json={"approver_name": "本部 太郎", "request_version": 1},
     )
 
     assert response.status_code == 200
@@ -255,10 +256,10 @@ def test_approve_resolution_request_fails_when_no_pending_request():
 
     response = client.post(
         f"/api/incidents/{observation['id']}/resolution-requests/approve",
-        json={"approver_name": "本部 太郎"},
+        json={"approver_name": "本部 太郎", "request_version": 1},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 409
 
 
 def test_approve_resolution_request_requires_hq():
@@ -271,7 +272,96 @@ def test_approve_resolution_request_requires_hq():
 
     response = client.post(
         f"/api/incidents/{observation['id']}/resolution-requests/approve",
-        json={"approver_name": "現場 花子"},
+        json={"approver_name": "現場 花子", "request_version": 1},
     )
 
     assert response.status_code == 403
+
+
+def test_anonymous_cannot_list_or_request_incidents():
+    observation = create_observation()
+    client.cookies.clear()
+    client.headers.pop("X-CSRF-Token", None)
+    assert client.get("/api/incidents").status_code == 401
+    assert client.post(f"/api/incidents/{observation['id']}/resolution-requests", json={"staff_name": "A"}).status_code in {401, 403}
+
+
+def test_field_can_read_all_but_only_request_assigned_shelter():
+    own = create_observation(shelter_id="AIT001")
+    other = create_observation(shelter_id="AIT002")
+    login_as("field")
+    assert {own["id"], other["id"]}.issubset({item["id"] for item in client.get("/api/incidents").json()})
+    path = f"/api/incidents/{other['id']}/resolution-requests"
+    for active in ["AIT001", "AIT002", None]:
+        assert client.post(path, json={"staff_name": "A", "active_shelter_id": active}).status_code == 403
+    # A forged self-reported active shelter cannot grant access.
+    assert client.post(f"/api/incidents/{own['id']}/resolution-requests", json={"staff_name": "A"}).status_code == 200
+
+
+def test_assignment_change_applies_to_existing_session(monkeypatch):
+    observation = create_observation()
+    login_as("field")
+    assert client.get("/api/auth/me").json()["shelter_ids"] == ["AIT001"]
+    monkeypatch.setenv("AUTH_SHELTER_ASSIGNMENTS", json.dumps({"local-field@tsunagu.local": ["AIT002"]}))
+    assert client.get("/api/auth/me").json()["shelter_ids"] == ["AIT002"]
+    assert client.post(f"/api/incidents/{observation['id']}/resolution-requests", json={"staff_name": "A"}).status_code == 403
+
+
+def test_hq_is_also_limited_by_assignment(monkeypatch):
+    observation = create_observation()
+    monkeypatch.setenv("AUTH_SHELTER_ASSIGNMENTS", json.dumps({"local-hq@tsunagu.local": ["AIT002"]}))
+    base = f"/api/incidents/{observation['id']}"
+    for suffix, body in [
+        ("confirm", {"approver_name": "HQ"}),
+        ("resolve", {"approver_name": "HQ", "staff_name": "A"}),
+        ("resolution-requests", {"staff_name": "A"}),
+        ("resolution-requests/approve", {"approver_name": "HQ", "request_version": 1}),
+    ]:
+        assert client.post(f"{base}/{suffix}", json=body).status_code == 403
+
+
+def test_replaced_request_cannot_be_approved_from_stale_screen():
+    observation = create_observation()
+    path = f"/api/incidents/{observation['id']}/resolution-requests"
+    first = client.post(path, json={"staff_name": "A", "memo": "A"}).json()
+    second = client.post(path, json={"staff_name": "B", "memo": "B"}).json()
+    assert second["state"]["resolution_request_version"] == first["state"]["resolution_request_version"] + 1
+    response = client.post(f"{path}/approve", json={"approver_name": "HQ", "request_version": first["state"]["resolution_request_version"]})
+    assert response.status_code == 409
+    approved = client.post(f"{path}/approve", json={"approver_name": "HQ", "request_version": second["state"]["resolution_request_version"]})
+    assert approved.status_code == 200
+    assert approved.json()["state"]["resolution_memo"] == "B"
+    assert client.post(path, json={"staff_name": "C"}).status_code == 409
+    assert client.post(f"{path}/approve", json={"approver_name": "HQ", "request_version": 2}).status_code == 409
+    assert client.post(f"/api/incidents/{observation['id']}/resolve", json={"approver_name": "HQ", "staff_name": "C"}).status_code == 409
+
+
+def test_concurrent_approvals_accept_exactly_one():
+    observation = create_observation()
+    path = f"/api/incidents/{observation['id']}/resolution-requests"
+    request = client.post(path, json={"staff_name": "A"}).json()
+    clients = [TestClient(app), TestClient(app)]
+    for other in clients:
+        other.post("/api/auth/dev-login", json={"role": "hq"})
+        other.headers["X-CSRF-Token"] = other.cookies.get("tsunagu_csrf")
+    def approve(other):
+        return other.post(f"{path}/approve", json={"approver_name": "HQ", "request_version": request["state"]["resolution_request_version"]}).status_code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(approve, clients)) == [200, 409]
+
+
+def test_rejected_incident_is_hidden_and_cannot_be_operated_but_history_remains():
+    observation = create_observation()
+    base = f"/api/incidents/{observation['id']}"
+    client.post(f"{base}/resolution-requests", json={"staff_name": "A"})
+    assert client.patch(f"/api/observations/{observation['id']}/verification", json={"status": "REJECTED"}).status_code == 200
+    assert observation["id"] not in {item["id"] for item in client.get("/api/incidents").json()}
+    for suffix, body in [
+        ("confirm", {"approver_name": "HQ"}),
+        ("resolve", {"approver_name": "HQ", "staff_name": "A"}),
+        ("resolution-requests", {"staff_name": "A"}),
+        ("resolution-requests/approve", {"approver_name": "HQ", "request_version": 1}),
+    ]:
+        assert client.post(f"{base}/{suffix}", json=body).status_code == 409
+    history = client.get(f"/api/shelters/{observation['shelter_id']}/observations", params={"limit": 200}).json()
+    assert next(item for item in history if item["id"] == observation["id"])["verification_status"] == "REJECTED"

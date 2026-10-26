@@ -7,6 +7,8 @@ import { useIncidents } from "../hooks/useIncidents.js";
 import { useShelterList } from "../hooks/useShelterList.js";
 import { canRequestResolution, isResolved, describeIncidentDisplay } from "../utils/incidents.js";
 import { requestResolution } from "../utils/incidentStore.js";
+import { useAuth } from "../auth/AuthContext.jsx";
+import { canOperateShelter } from "../utils/shelterPermissions.js";
 
 const TABS = [
   { id: "unresolved", label: "未対応" },
@@ -23,7 +25,8 @@ const TABS = [
 export default function IncidentPage() {
   const navigate = useNavigate();
   const shelters = useShelterList();
-  const { incidents, refresh } = useIncidents();
+  const { incidents, refresh, error, loading } = useIncidents();
+  const { user } = useAuth();
   const [activeTabId, setActiveTabId] = useState("unresolved");
   const [requestTargetIncident, setRequestTargetIncident] = useState(null);
 
@@ -48,7 +51,7 @@ export default function IncidentPage() {
         </div>
         <div className="incident-header-subtitle-row">
           <span className="scope-badge">全避難所</span>
-          <span className="incident-header-note">閲覧は全エリア可・対応確定は担当エリアのみ</span>
+          <span className="incident-header-note">閲覧は全避難所・申請は担当避難所のみ・確定は本部が承認</span>
         </div>
       </header>
 
@@ -56,10 +59,12 @@ export default function IncidentPage() {
         <StatusFilterTabs tabs={TABS} activeTabId={activeTabId} onChangeTab={setActiveTabId} />
 
         <div className="incident-card-list">
-          {visibleIncidents.length === 0 && <p className="incident-empty-state">該当するインシデントはありません</p>}
+          {loading && <p role="status">読み込み中...</p>}
+          {error && <p role="alert">{error}<button type="button" onClick={refresh}>再取得</button></p>}
+          {!loading && !error && visibleIncidents.length === 0 && <p className="incident-empty-state">該当するインシデントはありません</p>}
           {visibleIncidents.map((incident) => {
             const { assigneeLabel, statusNote, resolutionInfo } = describeIncidentDisplay(incident);
-            const showResolutionRequestButton = canRequestResolution(incident);
+            const showResolutionRequestButton = canRequestResolution(incident) && canOperateShelter(user, incident.shelter.id);
             return (
               <IncidentCard
                 key={incident.id}

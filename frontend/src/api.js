@@ -84,7 +84,7 @@ export const requestIncidentResolution = (observationId, { staffName, memo, acti
   { method: "POST", body: JSON.stringify({ staff_name: staffName, memo, active_shelter_id: activeShelterId }) },
 );
 
-export const approveIncidentResolutionRequest = (observationId, { approverName }) => api(
+export const approveIncidentResolutionRequest = (observationId, { approverName, requestVersion }) => api(
   `/api/incidents/${encodeURIComponent(observationId)}/resolution-requests/approve`,
-  { method: "POST", body: JSON.stringify({ approver_name: approverName }) },
+  { method: "POST", body: JSON.stringify({ approver_name: approverName, request_version: requestVersion }) },
 );

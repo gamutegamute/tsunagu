@@ -26,6 +26,7 @@ from app.auth import (
     require_demo_admin,
     require_gateway_key,
     require_hq,
+    require_shelter_assignment,
 )
 from app.config import get_settings, validate_runtime_settings
 from app.db import get_conn, get_demo_data_counts, reset_demo_dataset, seed_demo_data
@@ -206,8 +207,8 @@ def local_login(payload: DevLoginRequest) -> Response:
 
 
 @app.get("/api/auth/me")
-def current_user(user: AuthUser = Depends(require_authenticated_user)) -> dict[str, str]:
-    return {"email": user.email, "name": user.name, "role": user.role}
+def current_user(user: AuthUser = Depends(require_authenticated_user)) -> dict:
+    return {"email": user.email, "name": user.name, "role": user.role, "shelter_ids": user.shelter_ids}
 
 
 @app.post("/api/auth/logout", dependencies=[Depends(require_csrf)])
@@ -307,7 +308,15 @@ def create_observation(
     request: Request,
     user: AuthUser | None = Depends(get_optional_user),
 ) -> dict:
-    observed_at = payload.observed_at or datetime.now(timezone.utc)
+    now = _current_utc_time()
+    observed_at = payload.observed_at or now
+    if observed_at.tzinfo is None:
+        raise HTTPException(status_code=422, detail="observed_at must include a timezone")
+    observed_at = observed_at.astimezone(timezone.utc)
+    if observed_at > now + timedelta(minutes=10):
+        raise HTTPException(status_code=422, detail="observed_at is more than 10 minutes in the future; check the device clock")
+    # Small clock skew is tolerated without allowing future rows to hide new reports.
+    observed_at = min(observed_at, now)
     shelter_id = payload.shelter_id or payload.shelter_code
     reporter_type, reporter_email = _reporter_identity(user)
     if user is None and not anonymous_report_limiter.allow(_client_ip(request)):
@@ -367,6 +376,10 @@ def update_observation_verification(
     user: AuthUser = Depends(require_hq),
 ) -> dict:
     with get_conn() as conn:
+        observation = conn.execute("SELECT shelter_id FROM observations WHERE id = %s FOR UPDATE;", (observation_id,)).fetchone()
+        if observation is None:
+            raise HTTPException(status_code=404, detail="Observation not found")
+        require_shelter_assignment(user, observation["shelter_id"])
         row = conn.execute(
             """
             UPDATE observations
@@ -458,7 +471,9 @@ def dashboard(_: AuthUser = Depends(require_hq)) -> list[dict]:
                     o.verification_status,
                     o.verified_by,
                     o.verified_at,
-                    o.source
+                    o.source,
+                    o.signature_status,
+                    p.request_code AS explicit_request_code
                 FROM shelters s
                 LEFT JOIN LATERAL (
                     SELECT *
@@ -467,6 +482,11 @@ def dashboard(_: AuthUser = Depends(require_hq)) -> list[dict]:
                     ORDER BY observed_at DESC, created_at DESC
                     LIMIT 1
                 ) o ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT request_code FROM emergency_packets
+                    WHERE observation_id = o.id
+                    ORDER BY received_at DESC LIMIT 1
+                ) p ON TRUE
                 ORDER BY s.id;
                 """
             )
@@ -493,6 +513,7 @@ def dashboard(_: AuthUser = Depends(require_hq)) -> list[dict]:
                 "verified_by": row["verified_by"],
                 "verified_at": row["verified_at"],
                 "source": row["source"],
+                "signature_status": row["signature_status"],
             }
         status = decide_status(
             observed_at=row["observed_at"],
@@ -510,7 +531,9 @@ def dashboard(_: AuthUser = Depends(require_hq)) -> list[dict]:
                 },
                 "latest_observation": observation,
                 "status": status,
-                "request_code": decide_request_code(water_stock=row["water_stock"], status=status),
+                "request_code": (row["explicit_request_code"] if row["explicit_request_code"] not in {None, "NONE"} else None)
+                    or decide_request_code(water_stock=row["water_stock"], status=status),
+                "derived_request_code": decide_request_code(water_stock=row["water_stock"], status=status),
             }
         )
     return items
@@ -526,6 +549,7 @@ def _incident_state_from_row(row: dict) -> dict:
         "resolution_request_staff_name": row["resolution_request_staff_name"],
         "resolution_request_active_shelter_id": row["resolution_request_active_shelter_id"],
         "resolution_request_at": row["resolution_request_at"],
+        "resolution_request_version": row["resolution_request_version"] or 0,
         "resolution_memo": row["resolution_memo"],
         "resolution_staff_name": row["resolution_staff_name"],
         "resolution_approver_name": row["resolution_approver_name"],
@@ -534,7 +558,7 @@ def _incident_state_from_row(row: dict) -> dict:
 
 
 @app.get("/api/incidents", response_model=list[Incident])
-def list_incidents(_: AuthUser = Depends(require_hq)) -> list[dict]:
+def list_incidents(_: AuthUser = Depends(require_authenticated_user)) -> list[dict]:
     """
     決定事項34-a: メモが入っている全observationsを(避難所ごとの最新1件に絞らず)
     observed_at降順で返す。GET /api/dashboardは「最新1件のみ」しか返さないため、
@@ -564,6 +588,7 @@ def list_incidents(_: AuthUser = Depends(require_hq)) -> list[dict]:
                     ist.resolution_request_staff_name,
                     ist.resolution_request_active_shelter_id,
                     ist.resolution_request_at,
+                    ist.resolution_request_version,
                     ist.resolution_memo,
                     ist.resolution_staff_name,
                     ist.resolution_approver_name,
@@ -574,6 +599,7 @@ def list_incidents(_: AuthUser = Depends(require_hq)) -> list[dict]:
                 WHERE o.memo IS NOT NULL
                     AND trim(o.memo) != ''
                     AND o.source != 'emergency_packet'
+                    AND o.verification_status != 'REJECTED'
                 ORDER BY o.observed_at DESC, o.created_at DESC;
                 """
             )
@@ -621,6 +647,7 @@ def _fetch_incident(conn, observation_id: str) -> dict | None:
             ist.resolution_request_staff_name,
             ist.resolution_request_active_shelter_id,
             ist.resolution_request_at,
+            ist.resolution_request_version,
             ist.resolution_memo,
             ist.resolution_staff_name,
             ist.resolution_approver_name,
@@ -651,10 +678,21 @@ def _fetch_incident(conn, observation_id: str) -> dict | None:
     }
 
 
-def _require_observation_exists(conn, observation_id: str) -> None:
-    row = conn.execute("SELECT id FROM observations WHERE id = %s;", (observation_id,)).fetchone()
+def _require_observation_exists(conn, observation_id: str) -> dict:
+    # All incident mutations lock the observation first. This also serializes
+    # verification changes, request replacements and competing approvals.
+    row = conn.execute("SELECT * FROM observations WHERE id = %s FOR UPDATE;", (observation_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Observation not found")
+    if row["verification_status"] == "REJECTED" or not row["memo"].strip() or row["source"] == "emergency_packet":
+        raise HTTPException(status_code=409, detail="Observation is not an active incident")
+    return row
+
+
+def _require_unresolved_incident(conn, observation_id: str) -> None:
+    row = conn.execute("SELECT resolution_approved_at FROM incident_states WHERE observation_id = %s;", (observation_id,)).fetchone()
+    if row is not None and row["resolution_approved_at"] is not None:
+        raise HTTPException(status_code=409, detail="Incident is already resolved")
 
 
 @app.post(
@@ -665,11 +703,12 @@ def _require_observation_exists(conn, observation_id: str) -> None:
 def confirm_incident(
     observation_id: str,
     payload: IncidentConfirmRequest,
-    _: AuthUser = Depends(require_hq),
+    user: AuthUser = Depends(require_hq),
 ) -> dict:
     """決定事項14: 「確認済みにする」は本部(PC)専用の操作。"""
     with get_conn() as conn:
-        _require_observation_exists(conn, observation_id)
+        observation = _require_observation_exists(conn, observation_id)
+        require_shelter_assignment(user, observation["shelter_id"])
         conn.execute(
             """
             INSERT INTO incident_states (observation_id, confirm_status, confirmed_by, confirmed_at, confirm_memo)
@@ -694,14 +733,16 @@ def confirm_incident(
 def resolve_incident(
     observation_id: str,
     payload: IncidentResolveRequest,
-    _: AuthUser = Depends(require_hq),
+    user: AuthUser = Depends(require_hq),
 ) -> dict:
     """
     決定事項14: 申請を経由せず本部(PC)が直接「対応済みにする」場合。
     承認者本人がその場で対応内容を記録するため、承認待ちを経由せず即確定する。
     """
     with get_conn() as conn:
-        _require_observation_exists(conn, observation_id)
+        observation = _require_observation_exists(conn, observation_id)
+        require_shelter_assignment(user, observation["shelter_id"])
+        _require_unresolved_incident(conn, observation_id)
         conn.execute(
             """
             INSERT INTO incident_states (
@@ -721,32 +762,36 @@ def resolve_incident(
         return _fetch_incident(conn, observation_id)
 
 
-@app.post("/api/incidents/{observation_id}/resolution-requests", response_model=Incident)
+@app.post("/api/incidents/{observation_id}/resolution-requests", response_model=Incident, dependencies=[Depends(require_csrf)])
 def request_incident_resolution(
     observation_id: str,
     payload: IncidentResolutionRequestCreate,
-    _: AuthUser | None = Depends(get_optional_user),
+    user: AuthUser = Depends(require_authenticated_user),
 ) -> dict:
     """
-    決定事項7・12・14: モバイル(現場)からの「対応済みにする」申請。
-    ログイン不要(決定事項7)なため、認証は必須にしない。承認はPC専用(resolution-requests/approve)。
+    ログイン済みの担当職員からの申請。担当割当はサーバー設定から照合する。
     """
     with get_conn() as conn:
-        _require_observation_exists(conn, observation_id)
+        observation = _require_observation_exists(conn, observation_id)
+        require_shelter_assignment(user, observation["shelter_id"])
+        if payload.active_shelter_id is not None and payload.active_shelter_id != observation["shelter_id"]:
+            raise HTTPException(status_code=409, detail="Active shelter does not match the incident")
+        _require_unresolved_incident(conn, observation_id)
         conn.execute(
             """
             INSERT INTO incident_states (
                 observation_id, resolution_request_memo, resolution_request_staff_name,
-                resolution_request_active_shelter_id, resolution_request_at
+                resolution_request_active_shelter_id, resolution_request_at, resolution_request_version
             )
-            VALUES (%s, %s, %s, %s, now())
+            VALUES (%s, %s, %s, %s, now(), 1)
             ON CONFLICT (observation_id) DO UPDATE SET
                 resolution_request_memo = EXCLUDED.resolution_request_memo,
                 resolution_request_staff_name = EXCLUDED.resolution_request_staff_name,
                 resolution_request_active_shelter_id = EXCLUDED.resolution_request_active_shelter_id,
-                resolution_request_at = EXCLUDED.resolution_request_at;
+                resolution_request_at = EXCLUDED.resolution_request_at,
+                resolution_request_version = incident_states.resolution_request_version + 1;
             """,
-            (observation_id, payload.memo, payload.staff_name, payload.active_shelter_id),
+            (observation_id, payload.memo, payload.staff_name, observation["shelter_id"]),
         )
         conn.commit()
         return _fetch_incident(conn, observation_id)
@@ -760,11 +805,12 @@ def request_incident_resolution(
 def approve_incident_resolution_request(
     observation_id: str,
     payload: IncidentResolutionApproveRequest,
-    _: AuthUser = Depends(require_hq),
+    user: AuthUser = Depends(require_hq),
 ) -> dict:
     """決定事項2・7・12: モバイルからの申請を、本部(PC)が承認して確定する。"""
     with get_conn() as conn:
-        _require_observation_exists(conn, observation_id)
+        observation = _require_observation_exists(conn, observation_id)
+        require_shelter_assignment(user, observation["shelter_id"])
         row = conn.execute(
             """
             UPDATE incident_states
@@ -773,12 +819,13 @@ def approve_incident_resolution_request(
                 resolution_approver_name = %s,
                 resolution_approved_at = now()
             WHERE observation_id = %s AND resolution_request_at IS NOT NULL
+                AND resolution_request_version = %s AND resolution_approved_at IS NULL
             RETURNING observation_id;
             """,
-            (payload.approver_name, observation_id),
+            (payload.approver_name, observation_id, payload.request_version),
         ).fetchone()
         if row is None:
-            raise HTTPException(status_code=400, detail="No pending resolution request for this incident")
+            raise HTTPException(status_code=409, detail="Resolution request changed or was already approved; reload and review it again")
         conn.commit()
         return _fetch_incident(conn, observation_id)
 
@@ -920,7 +967,7 @@ def _create_emergency_packet_v1(raw: str, now_utc: datetime, hub_received_at: da
             observed_at = _packet_observed_at(packet.packet_time, row["received_at"])
             # v1の重複判定はサーバー受信時刻(now_utc)の10秒ウィンドウ。hub_received_atは使わない。
             event_digest = _emergency_packet_observation_digest(packet.raw_packet, now_utc)
-            conn.execute(
+            observation_row = conn.execute(
                 """
                 INSERT INTO observations (
                     id, shelter_id, client_event_id, people_count, water_stock,
@@ -929,7 +976,8 @@ def _create_emergency_packet_v1(raw: str, now_utc: datetime, hub_received_at: da
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'LoRa Packet',
                         'LORA_GATEWAY', 'UNVERIFIED', 'emergency_packet', 'UNSIGNED_V1')
-                ON CONFLICT (client_event_id) DO NOTHING;
+                ON CONFLICT (client_event_id) DO UPDATE SET client_event_id = EXCLUDED.client_event_id
+                RETURNING id;
                 """,
                 (
                     f"OBS-{uuid4().hex}",
@@ -941,7 +989,11 @@ def _create_emergency_packet_v1(raw: str, now_utc: datetime, hub_received_at: da
                     f"[LoRa] Status: {packet.status}, Req: {packet.request_code}",
                     observed_at,
                 ),
-            )
+            ).fetchone()
+            row = conn.execute(
+                "UPDATE emergency_packets SET observation_id = %s WHERE id = %s RETURNING *;",
+                (observation_row["id"], row["id"]),
+            ).fetchone()
         conn.commit()
         return row
 

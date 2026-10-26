@@ -29,6 +29,7 @@ export function normalizeIncident(incident) {
           targetShelterId: incident.shelter.id,
           activeShelterId: state.resolution_request_active_shelter_id,
           requestedAt: state.resolution_request_at,
+          version: state.resolution_request_version,
         }
       : null,
     resolution: state.resolution_approved_at

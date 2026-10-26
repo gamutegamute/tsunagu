@@ -20,8 +20,10 @@ export default function ResolutionRequestModal({ incident, shelters, onCancel, o
   const [memo, setMemo] = useState("");
   const [staffName, setStaffName] = useState(lastStaffName);
   const [previousActiveShelterId] = useState(() => getActiveShelter() || incident.shelter.id);
-  const [activeShelterId, setActiveShelterId] = useState(previousActiveShelterId);
+  const [activeShelterId, setActiveShelterId] = useState(incident.shelter.id);
   const [pendingShelterId, setPendingShelterId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   function handleShelterSelectChange(event) {
     const newShelterId = event.target.value;
@@ -35,22 +37,25 @@ export default function ResolutionRequestModal({ incident, shelters, onCancel, o
     setPendingShelterId(null);
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     const trimmedMemo = memo.trim();
     const trimmedStaffName = staffName.trim();
-    if (!trimmedMemo || !trimmedStaffName) return;
+    if (!trimmedMemo || !trimmedStaffName || submitting) return;
 
     if (trimmedStaffName) {
       localStorage.setItem(STORAGE_KEYS.reporterName, trimmedStaffName);
     }
 
-    onSubmit({
+    setSubmitting(true);
+    setError("");
+    try { await onSubmit({
       memo: trimmedMemo,
       staffName: trimmedStaffName,
       targetShelterId: incident.shelter.id,
       activeShelterId,
-    });
+    }); } catch { setError("申請できませんでした。担当割当・通信・最新の状態を確認してください。"); }
+    finally { setSubmitting(false); }
   }
 
   return (
@@ -66,8 +71,8 @@ export default function ResolutionRequestModal({ incident, shelters, onCancel, o
         <label className="bottom-sheet-field">
           アクティブ避難所(必須)
           <div className="bottom-sheet-select-row">
-            <select value={activeShelterId} onChange={handleShelterSelectChange}>
-              {shelters.map((shelter) => (
+            <select value={activeShelterId} onChange={handleShelterSelectChange} disabled>
+              {shelters.filter((shelter) => shelter.id === incident.shelter.id).map((shelter) => (
                 <option key={shelter.id} value={shelter.id}>
                   {shelter.id} {shelter.name}
                 </option>
@@ -78,7 +83,7 @@ export default function ResolutionRequestModal({ incident, shelters, onCancel, o
               前回: {previousActiveShelterId}
             </span>
           </div>
-          <span className="bottom-sheet-hint">別の避難所を選び直すと確認ダイアログが表示されます</span>
+          <span className="bottom-sheet-hint">申請対象の避難所です。担当割当はサーバーで確認します。</span>
         </label>
 
         <label className="bottom-sheet-field">
@@ -122,10 +127,11 @@ export default function ResolutionRequestModal({ incident, shelters, onCancel, o
           <button type="button" className="secondary-button" onClick={onCancel}>
             キャンセル
           </button>
-          <button type="submit" className="primary-button">
+          <button type="submit" className="primary-button" disabled={submitting}>
             対応済みを申請する
           </button>
         </div>
+        {error && <p role="alert">{error}</p>}
       </form>
 
       {pendingShelterId && (

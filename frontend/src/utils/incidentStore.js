@@ -44,6 +44,6 @@ export async function resolveIncidentDirectly(incidentId, { approverName, memo, 
 }
 
 /** モバイルからの申請を、PC(本部)が承認して確定する(決定事項2・7・12)。 */
-export async function approveResolutionRequest(incidentId, { approverName }) {
-  return approveIncidentResolutionRequestApi(incidentId, { approverName });
+export async function approveResolutionRequest(incidentId, { approverName, requestVersion }) {
+  return approveIncidentResolutionRequestApi(incidentId, { approverName, requestVersion });
 }

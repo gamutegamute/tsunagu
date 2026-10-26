@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import time
 from dataclasses import asdict, dataclass
@@ -26,6 +27,29 @@ class AuthUser:
     email: str
     name: str
     role: Literal["field", "hq"]
+    shelter_ids: tuple[str, ...] = ()
+
+
+def shelter_assignments() -> dict[str, tuple[str, ...]]:
+    raw = os.getenv("AUTH_SHELTER_ASSIGNMENTS", "").strip()
+    if not raw and get_settings().auth_mode == "dev":
+        return {"local-hq@tsunagu.local": ("*",), "local-field@tsunagu.local": ("AIT001",)}
+    try:
+        data = json.loads(raw or "{}")
+        if not isinstance(data, dict) or any(
+            not isinstance(email, str) or not isinstance(ids, list)
+            or any(not isinstance(shelter_id, str) or not shelter_id.strip() for shelter_id in ids)
+            for email, ids in data.items()
+        ):
+            raise ValueError()
+        return {email.strip().lower(): tuple(ids) for email, ids in data.items()}
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError("AUTH_SHELTER_ASSIGNMENTS must map account emails to shelter ID arrays") from exc
+
+
+def require_shelter_assignment(user: AuthUser, shelter_id: str) -> None:
+    if shelter_id not in user.shelter_ids and not (user.role == "hq" and "*" in user.shelter_ids):
+        raise HTTPException(status_code=403, detail="You are not assigned to this shelter")
 
 
 class DevLoginRequest(BaseModel):
@@ -127,7 +151,8 @@ def get_optional_user(session: str | None = Cookie(default=None, alias=SESSION_C
         payload = _decode_signed(session, "session")
     except HTTPException:
         return None
-    user = AuthUser(email=payload["email"], name=payload["name"], role=payload["role"])
+    user = AuthUser(email=payload["email"], name=payload["name"], role=payload["role"],
+                    shelter_ids=shelter_assignments().get(payload["email"].lower(), ()))
     if get_settings().auth_mode == "cognito" and _role_for_email(user.email) != user.role:
         return None
     return user

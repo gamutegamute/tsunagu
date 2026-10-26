@@ -6,12 +6,18 @@ import { useState } from "react";
  */
 export default function PcActionModal({ title, subtitle, confirmLabel, onCancel, onSubmit }) {
   const [memo, setMemo] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     const trimmedMemo = memo.trim();
-    if (!trimmedMemo) return;
-    onSubmit(trimmedMemo);
+    if (!trimmedMemo || submitting) return;
+    setSubmitting(true);
+    setError("");
+    try { await onSubmit(trimmedMemo); }
+    catch { setError("更新できませんでした。権限と最新の状態を確認してください。"); }
+    finally { setSubmitting(false); }
   }
 
   return (
@@ -33,10 +39,11 @@ export default function PcActionModal({ title, subtitle, confirmLabel, onCancel,
           <button type="button" className="secondary-button" onClick={onCancel}>
             キャンセル
           </button>
-          <button type="submit" className="primary-button">
+          <button type="submit" className="primary-button" disabled={submitting}>
             {confirmLabel}
           </button>
         </div>
+        {error && <p role="alert">{error}</p>}
       </form>
     </div>
   );
