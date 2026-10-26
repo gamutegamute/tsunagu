@@ -8,7 +8,6 @@ import { STORAGE_KEYS } from "../utils/storageKeys.js";
 import { setActiveShelter } from "../utils/activeShelter.js";
 import { addSentReportToHistory } from "../utils/sentReportHistory.js";
 import AuthStatus from "../components/AuthStatus.jsx";
-import { createClientEventId } from "../utils/clientEventId.js";
 
 /**
  * 現場報告画面(モバイル向け、/field-report)。
@@ -32,7 +31,7 @@ import { createClientEventId } from "../utils/clientEventId.js";
  */
 export default function FieldReportPage() {
   const shelters = useShelterList();
-  const { pendingReportCount, isSyncing, addReportToPendingQueue, sendPendingReports } = useOfflineReportQueue();
+  const { pendingReportCount, isSyncing, syncError, addReportToPendingQueue, sendPendingReports } = useOfflineReportQueue();
 
   // 通信が復活したら、この端末の保留中の報告を再送する
   const [networkMode, offlinePhase] = useNetworkMode(() => {
@@ -41,40 +40,41 @@ export default function FieldReportPage() {
 
   const isOnline = networkMode === "normal";
 
-  async function handleSubmitReport({ reporterName, shelterId, peopleCount, waterStock, urgency, memo }) {
+  async function handleSubmitReport({ reporterName, shelterId, peopleCount, waterStock, urgency, memo, clientEventId, observedAt }) {
     const trimmedReporterName = reporterName.trim();
-    if (trimmedReporterName) {
-      localStorage.setItem(STORAGE_KEYS.reporterName, trimmedReporterName);
-    }
-
-    // 決定事項23: 避難所を選んで報告するたびに「アクティブ避難所」を更新する
-    setActiveShelter(shelterId);
+    try {
+      if (trimmedReporterName) localStorage.setItem(STORAGE_KEYS.reporterName, trimmedReporterName);
+      setActiveShelter(shelterId);
+    } catch { /* Preference storage must not block the durable report. */ }
 
     const payload = {
       reporter_name: trimmedReporterName,
       shelter_id: shelterId,
-      client_event_id: createClientEventId(),
+      client_event_id: clientEventId,
       people_count: peopleCount,
       water_stock: waterStock,
       urgency,
       memo,
-      observed_at: new Date().toISOString(),
+      observed_at: observedAt,
       source: networkMode === "offline" ? "offline" : "web",
     };
 
     if (isOnline) {
       try {
         await createObservation(payload);
-        addSentReportToHistory({ shelterId, urgency, observedAt: payload.observed_at });
       } catch (error) {
-        await addReportToPendingQueue(payload);
+        if (error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)) throw error;
+        await addReportToPendingQueue(payload, error);
+        return "queued";
       }
-      return;
+      try { addSentReportToHistory({ shelterId, urgency, observedAt: payload.observed_at }); } catch { /* Already accepted by API. */ }
+      return "sent";
     }
 
     // オフライン中は常に未送信キューへ保存し、通信復旧後に通常APIで再送する。
     // 決定事項29: 実際のLoRa送信はT-Beam専用ページの担当のため、ここでは行わない。
     await addReportToPendingQueue(payload);
+    return "queued";
   }
 
   return (
@@ -95,6 +95,7 @@ export default function FieldReportPage() {
       </header>
 
       <main className="layout-mobile">
+        {syncError && <p role="alert">{syncError}</p>}
         <FieldReportForm
           shelters={shelters}
           networkMode={networkMode}

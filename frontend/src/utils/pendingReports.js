@@ -7,6 +7,14 @@ const STORE_NAME = "pendingReports";
 
 let databasePromise;
 let indexedDbUnavailable = false;
+let storeOperation = Promise.resolve();
+
+// Serialize migrations and mutations so a late migration cannot restore a deleted row.
+function serialize(operation) {
+  const result = storeOperation.then(operation);
+  storeOperation = result.catch(() => {});
+  return result;
+}
 
 function hasIndexedDb() {
   return !indexedDbUnavailable && typeof indexedDB !== "undefined";
@@ -42,19 +50,18 @@ function runTransaction(mode, operation) {
       const transaction = database.transaction(STORE_NAME, mode);
       const store = transaction.objectStore(STORE_NAME);
       const request = operation(store);
-      request.onsuccess = () => resolve(request.result);
+      let result;
+      request.onsuccess = () => { result = request.result; };
       request.onerror = () => reject(request.error);
       transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error("IndexedDB transaction aborted"));
+      transaction.oncomplete = () => resolve(result);
     });
   });
 }
 
 function readLegacyReports() {
   return loadJson(STORAGE_KEYS.pendingReports, []);
-}
-
-function saveLegacyReports(reports) {
-  localStorage.setItem(STORAGE_KEYS.pendingReports, JSON.stringify(reports));
 }
 
 async function migrateLegacyReports() {
@@ -65,73 +72,108 @@ async function migrateLegacyReports() {
     await runTransaction("readwrite", (store) => store.put(report));
   }
   localStorage.setItem(STORAGE_KEYS.pendingReportsMigrated, "true");
+  localStorage.removeItem(STORAGE_KEYS.pendingReports);
+}
+
+// This journal is separate from the already-migrated legacy queue. Null entries
+// are durable deletions when IndexedDB is temporarily unavailable.
+function readFallback() {
+  return loadJson(STORAGE_KEYS.pendingReportsFallback, {});
+}
+
+function writeFallback(id, report) {
+  localStorage.setItem(STORAGE_KEYS.pendingReportsFallback, JSON.stringify({ ...readFallback(), [id]: report }));
+}
+
+async function reconcileFallback() {
+  const entries = Object.entries(readFallback());
+  for (const [id, report] of entries) {
+    await runTransaction("readwrite", (store) => report === null ? store.delete(id) : store.put(report));
+  }
+  // Only discard the journal after every transaction has committed.
+  if (entries.length) localStorage.removeItem(STORAGE_KEYS.pendingReportsFallback);
+}
+
+function fallbackReports() {
+  const reports = new Map(
+    (localStorage.getItem(STORAGE_KEYS.pendingReportsMigrated) === "true" ? [] : readLegacyReports())
+      .map((report) => [report.client_event_id, report]),
+  );
+  for (const [id, report] of Object.entries(readFallback())) {
+    if (report === null) reports.delete(id);
+    else reports.set(id, report);
+  }
+  return [...reports.values()];
 }
 
 /**
  * 未送信報告を、長期間のオフライン利用に強い IndexedDB から取得する。
  * IndexedDB を使えないブラウザでは従来の localStorage に安全にフォールバックする。
  */
-export async function getPendingReports() {
-  if (!hasIndexedDb()) return readLegacyReports();
+async function readReports() {
+  if (!hasIndexedDb()) return fallbackReports();
 
   try {
     await migrateLegacyReports();
+    await reconcileFallback();
     const reports = await runTransaction("readonly", (store) => store.getAll());
     return reports ?? [];
   } catch {
     indexedDbUnavailable = true;
-    return readLegacyReports();
+    return fallbackReports();
   }
 }
 
-export async function addPendingReport(report) {
+export function getPendingReports() {
+  return serialize(readReports);
+}
+
+async function addReport(report) {
   if (!report.client_event_id) {
     throw new Error("client_event_id is required for an offline report");
   }
 
   if (!hasIndexedDb()) {
-    const reports = readLegacyReports();
-    const index = reports.findIndex((item) => item.client_event_id === report.client_event_id);
-    if (index >= 0) reports[index] = report;
-    else reports.push(report);
-    saveLegacyReports(reports);
+    writeFallback(report.client_event_id, report);
     return;
   }
 
   try {
     await migrateLegacyReports();
+    await reconcileFallback();
     await runTransaction("readwrite", (store) => store.put(report));
   } catch {
     indexedDbUnavailable = true;
-    await addPendingReport(report);
+    await addReport(report);
   }
 }
 
-export async function removePendingReport(clientEventId) {
+export function addPendingReport(report) {
+  return serialize(() => addReport(report));
+}
+
+async function removeReport(clientEventId) {
   if (!hasIndexedDb()) {
-    saveLegacyReports(readLegacyReports().filter((report) => report.client_event_id !== clientEventId));
+    writeFallback(clientEventId, null);
     return;
   }
 
   try {
     await migrateLegacyReports();
+    await reconcileFallback();
     await runTransaction("readwrite", (store) => store.delete(clientEventId));
   } catch {
     indexedDbUnavailable = true;
-    await removePendingReport(clientEventId);
+    await removeReport(clientEventId);
   }
 }
 
-export async function getPendingReportCount() {
-  if (!hasIndexedDb()) return readLegacyReports().length;
+export function removePendingReport(clientEventId) {
+  return serialize(() => removeReport(clientEventId));
+}
 
-  try {
-    await migrateLegacyReports();
-    return (await runTransaction("readonly", (store) => store.count())) ?? 0;
-  } catch {
-    indexedDbUnavailable = true;
-    return readLegacyReports().length;
-  }
+export function getPendingReportCount() {
+  return serialize(async () => (await readReports()).length);
 }
 
 export async function requestPersistentStorage() {

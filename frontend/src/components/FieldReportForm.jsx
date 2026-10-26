@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createClientEventId } from "../utils/clientEventId.js";
 import StatusHeroBanner from "./StatusHeroBanner.jsx";
 import ReporterNameField from "./fields/ReporterNameField.jsx";
 import ShelterSelectField from "./fields/ShelterSelectField.jsx";
@@ -34,6 +35,11 @@ export default function FieldReportForm({
   const [waterStock, setWaterStock] = useState(20);
   const [urgency, setUrgency] = useState("NORMAL");
   const [memo, setMemo] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState("");
+  const [submitError, setSubmitError] = useState("");
+  const submitting = useRef(false);
+  const lastAttempt = useRef(null);
 
   // 避難所一覧が届いたタイミングで、まだ何も選ばれていなければ先頭の避難所を選んでおく
   useEffect(() => {
@@ -42,17 +48,36 @@ export default function FieldReportForm({
     }
   }, [shelters, shelterId]);
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
-    onSubmitReport({
+    if (submitting.current) return;
+    const fields = {
       reporterName,
       shelterId,
       peopleCount: Number(peopleCount),
       waterStock: Number(waterStock),
       urgency,
       memo,
-    });
-    setMemo(""); // 送信後はメモ欄だけ空にする(他の項目は次回報告でも使い回せるよう残す)
+    };
+    const fingerprint = JSON.stringify(fields);
+    if (lastAttempt.current?.fingerprint !== fingerprint) {
+      lastAttempt.current = { fingerprint, clientEventId: createClientEventId(), observedAt: new Date().toISOString() };
+    }
+    submitting.current = true;
+    setIsSubmitting(true);
+    setSubmitMessage("");
+    setSubmitError("");
+    try {
+      const result = await onSubmitReport({ ...fields, ...lastAttempt.current });
+      setMemo("");
+      lastAttempt.current = null;
+      setSubmitMessage(result === "queued" ? "端末に保存しました。接続後に再送します。" : "報告を送信しました。");
+    } catch (error) {
+      setSubmitError(`送信・保存できませんでした。入力を保持しています。${error.message || "再試行してください。"}`);
+    } finally {
+      submitting.current = false;
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -65,6 +90,7 @@ export default function FieldReportForm({
       <StatusHeroBanner networkMode={networkMode} offlinePhase={offlinePhase} />
 
       <form onSubmit={handleSubmit}>
+        <fieldset disabled={isSubmitting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <ReporterNameField reporterName={reporterName} onChange={setReporterName} />
         <ShelterSelectField shelters={shelters} selectedShelterId={shelterId} onChange={setShelterId} />
         <PeopleAndWaterFields
@@ -86,7 +112,10 @@ export default function FieldReportForm({
           </button>
         )}
         <p className="pending">未送信 {pendingReportCount}件</p>
-        <button type="submit">報告する</button>
+        <button type="submit" disabled={isSubmitting}>{isSubmitting ? "保存・送信中..." : "報告する"}</button>
+        </fieldset>
+        {submitError && <p role="alert">{submitError}</p>}
+        {submitMessage && <p role="status">{submitMessage}</p>}
       </form>
     </section>
   );

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import FieldReportPage from "./FieldReportPage.jsx";
 import { STORAGE_KEYS } from "../utils/storageKeys.js";
@@ -32,7 +32,7 @@ async function submitReport() {
 }
 
 function readPendingReports() {
-  return JSON.parse(localStorage.getItem(STORAGE_KEYS.pendingReports) || "[]");
+  return Object.values(JSON.parse(localStorage.getItem(STORAGE_KEYS.pendingReportsFallback) || "{}"));
 }
 
 describe("FieldReportPage — 決定事項29: オフライン中の報告は未送信キューに保存するのみ", () => {
@@ -42,6 +42,23 @@ describe("FieldReportPage — 決定事項29: オフライン中の報告は未�
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps input when both the POST and durable storage fail", async () => {
+    mockNetworkMode = "normal";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network failure")));
+    const setItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (key, value) {
+      if (key === STORAGE_KEYS.pendingReportsFallback) throw new DOMException("storage full", "QuotaExceededError");
+      return setItem.call(this, key, value);
+    });
+    renderPage();
+    fireEvent.change(document.querySelector("textarea"), { target: { value: "消してはいけないメモ" } });
+    await submitReport();
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("入力を保持"));
+    expect(document.querySelector("textarea").value).toBe("消してはいけないメモ");
   });
 
   it("オフライン(retryingフェーズ)で報告すると、未送信キューに保存される", async () => {
@@ -50,6 +67,7 @@ describe("FieldReportPage — 決定事項29: オフライン中の報告は未�
     renderPage();
 
     await submitReport();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("端末に保存"));
 
     const pending = readPendingReports();
     expect(pending).toHaveLength(1);
@@ -62,6 +80,7 @@ describe("FieldReportPage — 決定事項29: オフライン中の報告は未�
     renderPage();
 
     await submitReport();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("端末に保存"));
 
     const pending = readPendingReports();
     expect(pending).toHaveLength(1);
