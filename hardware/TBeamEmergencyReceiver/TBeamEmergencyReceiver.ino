@@ -28,17 +28,38 @@ void markPacketReceived() {
   packetReceived = true;
 }
 
+// 受信機は形と長さだけを確認する。内容の検証(v2の署名を含む)はAPIが行う。
+// v1: 区切り6個、最大160バイト。v2: 区切り11個、最大131バイト(docs/emergency-packet-v2.md の各フィールドの最大長の合計)。
+constexpr size_t MAX_V1_PACKET_LENGTH = 160;
+constexpr size_t MAX_V2_PACKET_LENGTH = 131;
+
 bool hasEmergencyPacketShape(const String &packet) {
-  if (!packet.startsWith("v1|") || packet.length() > 160) {
+  size_t maxLength = 0;
+  int expectedDelimiters = 0;
+  if (packet.startsWith("v1|")) {
+    maxLength = MAX_V1_PACKET_LENGTH;
+    expectedDelimiters = 6;
+  } else if (packet.startsWith("v2|")) {
+    maxLength = MAX_V2_PACKET_LENGTH;
+    expectedDelimiters = 11;
+  } else {
+    return false;
+  }
+  if (packet.length() > maxLength) {
     return false;
   }
   int delimiterCount = 0;
   for (size_t index = 0; index < packet.length(); ++index) {
-    if (packet[index] == '|') {
+    const char character = packet[index];
+    // ゲートウェイは1行を1Packetとして扱うので、改行などの制御文字や非ASCIIを含むものは通さない。
+    if (character < 0x20 || character > 0x7E) {
+      return false;
+    }
+    if (character == '|') {
       ++delimiterCount;
     }
   }
-  return delimiterCount == 6;
+  return delimiterCount == expectedDelimiters;
 }
 
 bool initializePower() {
