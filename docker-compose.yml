@@ -24,6 +24,7 @@ services:
       DEMO_SEED: "true"
       APP_ENV: development
       AUTH_MODE: dev
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
       AUTH_SHELTER_ASSIGNMENTS: ${AUTH_SHELTER_ASSIGNMENTS:-}
       SESSION_SECRET: local-development-session-secret
       GATEWAY_API_KEY: local-gateway-key
