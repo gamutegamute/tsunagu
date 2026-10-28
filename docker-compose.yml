@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: shelteros
       POSTGRES_PASSWORD: shelteros
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -36,7 +36,7 @@ services:
       PACKET_DEVICE_KEYS: ${PACKET_DEVICE_KEYS:-}
       PACKET_DISABLED_DEVICES: ${PACKET_DISABLED_DEVICES:-}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./backend/app:/app/app
       - ./backend/tests:/app/tests

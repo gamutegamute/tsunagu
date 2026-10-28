@@ -1,0 +1,19 @@
+# Explicit opt-in for a shared demo. Requires real Cognito settings and a secret.
+# The base file's loopback ports remain available; only API gets a LAN binding.
+services:
+  api:
+    ports:
+      - "${LAN_BIND_IP:?Set a specific LAN IP}:8000:8000"
+    environment:
+      APP_ENV: production
+      AUTH_MODE: cognito
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set the registered public base URL}
+      SESSION_SECRET: ${SESSION_SECRET:?Set a unique random secret}
+      GATEWAY_API_KEY: ${GATEWAY_API_KEY:?Set a private Gateway key}
+      COGNITO_DOMAIN: ${COGNITO_DOMAIN:?Set Cognito domain}
+      COGNITO_CLIENT_ID: ${COGNITO_CLIENT_ID:?Set Cognito client ID}
+      COGNITO_ISSUER: ${COGNITO_ISSUER:?Set Cognito issuer}
+      AUTH_HQ_EMAILS: ${AUTH_HQ_EMAILS:?Set allowed headquarters accounts}
+      AUTH_FIELD_EMAILS: ${AUTH_FIELD_EMAILS:-}
+      AUTH_SHELTER_ASSIGNMENTS: ${AUTH_SHELTER_ASSIGNMENTS:?Set staff assignments}
+      DEMO_RESET_ENABLED: "false"

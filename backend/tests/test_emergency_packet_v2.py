@@ -381,8 +381,9 @@ def test_time_skew_over_600_seconds_is_untrusted_and_uses_hub_time():
     assert observation["observed_at"] == hub_received_at
 
 
-def test_time_skew_of_exactly_600_seconds_is_trusted():
+def test_time_skew_of_exactly_600_seconds_is_trusted_but_future_observation_is_clamped(monkeypatch):
     hub_received_at = datetime.now(timezone.utc).replace(microsecond=0)
+    monkeypatch.setattr(main_module, "_current_utc_time", lambda: hub_received_at)
     reported_at = int(hub_received_at.timestamp()) + 600
     packet = make_packet(reported_at=reported_at)
 
@@ -390,7 +391,39 @@ def test_time_skew_of_exactly_600_seconds_is_trusted():
 
     assert response.status_code == 201
     assert response.json()["time_trust"] == "TRUSTED"
-    assert observations_for(install_id_of(packet))[0]["observed_at"].timestamp() == reported_at
+    assert observations_for(install_id_of(packet))[0]["observed_at"] == hub_received_at
+    assert datetime.fromisoformat(response.json()["reported_at"]).timestamp() == reported_at
+
+
+@pytest.mark.parametrize("future_reporter", [False, True])
+def test_future_hub_clock_cannot_hide_later_reports(monkeypatch, future_reporter):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    future = datetime(2099, 1, 1, tzinfo=timezone.utc)
+    monkeypatch.setattr(main_module, "_current_utc_time", lambda: now)
+    client.post("/api/auth/dev-login", json={"role": "hq"})
+    client.headers["X-CSRF-Token"] = client.cookies.get("tsunagu_csrf")
+    shelter = f"T{uuid4().hex[:5]}".upper()
+    assert client.post("/api/shelters", json={"id": shelter, "name": "Clock test"}).status_code == 201
+    raw = make_packet(shelter_code=shelter, reported_at=int((future if future_reporter else now).timestamp()), water_stock=100)
+    accepted = post_packet(raw, future)
+    assert accepted.status_code == 201
+    assert accepted.json()["time_trust"] == "UNTRUSTED"
+    assert datetime.fromisoformat(accepted.json()["hub_received_at"]) == future
+    assert accepted.json()["raw_packet"] == raw
+    assert observations_for(install_id_of(raw))[0]["observed_at"] == now
+    monkeypatch.setattr(main_module, "_current_utc_time", lambda: now + timedelta(seconds=1))
+    current = client.post("/api/observations", json={"shelter_id": shelter, "people_count": 1, "water_stock": 1, "urgency": "CRITICAL"})
+    assert current.status_code == 201
+    item = next(item for item in client.get("/api/dashboard").json() if item["shelter"]["id"] == shelter)
+    assert item["latest_observation"]["id"] == current.json()["id"]
+
+
+def test_delayed_packet_keeps_past_hub_time():
+    past = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=3)
+    raw = make_packet(reported_at=int(past.timestamp()) - 601)
+    response = post_packet(raw, past)
+    assert response.status_code == 201
+    assert observations_for(install_id_of(raw))[0]["observed_at"] == past
 
 
 def test_v2_packet_for_unknown_shelter_is_stored_without_observation():

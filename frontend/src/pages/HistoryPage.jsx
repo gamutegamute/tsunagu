@@ -28,12 +28,15 @@ export default function HistoryPage() {
   const navigate = useNavigate();
   const shelters = useShelterList();
   const [pendingReports, setPendingReports] = useState(() => loadJson(STORAGE_KEYS.pendingReports, []));
+  const [readError, setReadError] = useState("");
   const history = mergeHistoryEntries(getSentReportHistory(), pendingReports);
 
   useEffect(() => {
     let isCurrent = true;
     void getPendingReports().then((reports) => {
       if (isCurrent) setPendingReports(reports);
+    }).catch((error) => {
+      if (isCurrent) { setReadError(error.message); setPendingReports(error.reports ?? []); }
     });
     return () => {
       isCurrent = false;
@@ -64,7 +67,8 @@ export default function HistoryPage() {
           </div>
 
           <div className="history-list">
-            {history.length === 0 ? (
+            {readError && <p role="alert">{readError}</p>}
+            {history.length === 0 && !readError ? (
               <p className="incident-empty-state">送信履歴はまだありません</p>
             ) : (
               history.map((entry) => (

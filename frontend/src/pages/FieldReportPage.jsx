@@ -3,10 +3,8 @@ import FieldReportNavButtons from "../components/FieldReportNavButtons.jsx";
 import { useShelterList } from "../hooks/useShelterList.js";
 import { useNetworkMode } from "../hooks/useNetworkMode.js";
 import { useOfflineReportQueue } from "../hooks/useOfflineReportQueue.js";
-import { createObservation } from "../api.js";
 import { STORAGE_KEYS } from "../utils/storageKeys.js";
 import { setActiveShelter } from "../utils/activeShelter.js";
-import { addSentReportToHistory } from "../utils/sentReportHistory.js";
 import AuthStatus from "../components/AuthStatus.jsx";
 
 /**
@@ -31,7 +29,7 @@ import AuthStatus from "../components/AuthStatus.jsx";
  */
 export default function FieldReportPage() {
   const shelters = useShelterList();
-  const { pendingReportCount, isSyncing, syncError, addReportToPendingQueue, sendPendingReports, retryPendingReports } = useOfflineReportQueue();
+  const { pendingReportCount, isSyncing, syncError, addReportToPendingQueue, sendPendingReports, retryPendingReports, sendReport } = useOfflineReportQueue();
 
   // 通信が復活したら、この端末の保留中の報告を再送する
   const [networkMode, offlinePhase] = useNetworkMode(() => {
@@ -59,21 +57,21 @@ export default function FieldReportPage() {
       source: networkMode === "offline" ? "offline" : "web",
     };
 
+    // Persist before starting any request, including the online path.
+    await addReportToPendingQueue(payload);
     if (isOnline) {
       try {
-        await createObservation(payload);
+        await sendReport(payload);
       } catch (error) {
-        if (error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)) throw error;
         await addReportToPendingQueue(payload, error);
+        if (error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)) throw error;
         return "queued";
       }
-      try { addSentReportToHistory({ shelterId, urgency, observedAt: payload.observed_at }); } catch { /* Already accepted by API. */ }
       return "sent";
     }
 
     // オフライン中は常に未送信キューへ保存し、通信復旧後に通常APIで再送する。
     // 決定事項29: 実際のLoRa送信はT-Beam専用ページの担当のため、ここでは行わない。
-    await addReportToPendingQueue(payload);
     return "queued";
   }
 
