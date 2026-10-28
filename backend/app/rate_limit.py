@@ -12,9 +12,9 @@ class SlidingWindowRateLimiter:
         self._lock = threading.Lock()
 
     def allow(self, key: str) -> bool:
-        now = time.monotonic()
-        cutoff = now - self.window_seconds
         with self._lock:
+            now = time.monotonic()
+            cutoff = now - self.window_seconds
             # Ordered by last accepted request, so expired senders can be
             # collected without scanning all active senders on every request.
             while self._events:
