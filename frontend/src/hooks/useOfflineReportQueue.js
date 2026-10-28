@@ -55,7 +55,7 @@ export function useOfflineReportQueue() {
       attempts.current.delete(id);
       try { addSentReportToHistory({ shelterId: report.shelter_id ?? report.shelter_code, urgency: report.urgency, observedAt: report.observed_at }); }
       catch { /* The server has accepted the report; history is optional. */ }
-      await refreshPendingReportCount();
+      if ((await refreshPendingReportCount()) === 0) setSyncError("");
     })().finally(() => deliveries.current.delete(id));
     deliveries.current.set(id, promise);
     return promise;

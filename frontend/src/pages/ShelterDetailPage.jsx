@@ -61,6 +61,7 @@ export default function ShelterDetailPage() {
       </header>
 
       <main className="layout-desktop">
+        <DashboardFreshness {...freshness} />
         <div className="shelter-detail-summary">
           <ShelterCard shelterStatus={shelterStatus} />
         </div>

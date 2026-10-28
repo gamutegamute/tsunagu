@@ -81,7 +81,7 @@ export async function createObservation(payload) {
     || observation.client_event_id !== payload.client_event_id
     || observation.shelter_id !== (payload.shelter_id ?? payload.shelter_code)
     || observation.people_count !== payload.people_count || observation.water_stock !== payload.water_stock
-    || observation.urgency !== payload.urgency || observation.memo !== (payload.memo ?? "")
+    || observation.urgency !== (payload.urgency ?? "NORMAL") || observation.memo !== (payload.memo ?? "")
     || !Number.isFinite(Date.parse(observation.observed_at))) throw new ApiResponseError();
   return observation;
 }

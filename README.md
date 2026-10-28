@@ -141,6 +141,8 @@ docker compose up --build
 
 起動後は以下を開きます。
 
+開発用APIとDBは、このPCの `127.0.0.1` のみに公開します。LAN共有デモ、本番セッション鍵、信頼するプロキシの設定は [実行環境と復旧手順](docs/runtime-and-recovery.md) を参照してください。
+
 - アプリ: [http://localhost:8000](http://localhost:8000)
 - APIドキュメント: [http://localhost:8000/docs](http://localhost:8000/docs)
 
