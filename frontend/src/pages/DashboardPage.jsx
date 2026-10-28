@@ -1,4 +1,5 @@
 import Dashboard from "../components/Dashboard.jsx";
+import DashboardFreshness from "../components/DashboardFreshness.jsx";
 import { useShelterList } from "../hooks/useShelterList.js";
 import { useDashboardData } from "../hooks/useDashboardData.js";
 import { useDashboardPolling } from "../hooks/useDashboardPolling.js";
@@ -25,7 +26,7 @@ const DASHBOARD_POLL_INTERVAL_MS = 15_000;
  */
 export default function DashboardPage() {
   const shelters = useShelterList();
-  const { dashboardItems, emergencyPackets, reloadDashboard } = useDashboardData();
+  const { dashboardItems, emergencyPackets, reloadDashboard, ...freshness } = useDashboardData();
 
   useDashboardPolling(reloadDashboard, DASHBOARD_POLL_INTERVAL_MS);
 
@@ -46,6 +47,7 @@ export default function DashboardPage() {
       </header>
 
       <main className="layout-desktop">
+        <DashboardFreshness {...freshness} />
         <Dashboard shelterStatusList={shelterStatusList} onSyncButtonClick={reloadDashboard} />
       </main>
     </>

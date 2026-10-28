@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 import ShelterCard from "../components/ShelterCard.jsx";
+import DashboardFreshness from "../components/DashboardFreshness.jsx";
 import WaterTrendChart from "../components/shelter-detail/WaterTrendChart.jsx";
 import PeopleTrendChart from "../components/shelter-detail/PeopleTrendChart.jsx";
 import PcIncidentCard from "../components/incident/PcIncidentCard.jsx";
@@ -19,7 +20,7 @@ export default function ShelterDetailPage() {
   const { shelterId } = useParams();
   const navigate = useNavigate();
   const shelters = useShelterList();
-  const { dashboardItems, emergencyPackets, reloadDashboard } = useDashboardData();
+  const { dashboardItems, emergencyPackets, reloadDashboard, ...freshness } = useDashboardData();
   const { incidents, refresh: refreshIncidents, error: incidentError, loading: incidentsLoading } = useIncidents();
 
   useEffect(() => {
@@ -35,6 +36,7 @@ export default function ShelterDetailPage() {
   if (!shelterStatus) {
     return (
       <main className="layout-desktop">
+        <DashboardFreshness {...freshness} />
         <p>避難所 {shelterId} が見つかりません。</p>
         <button type="button" className="secondary-button" onClick={() => navigate("/dashboard")}>
           状況一覧に戻る
@@ -59,6 +61,7 @@ export default function ShelterDetailPage() {
       </header>
 
       <main className="layout-desktop">
+        <DashboardFreshness {...freshness} />
         <div className="shelter-detail-summary">
           <ShelterCard shelterStatus={shelterStatus} />
         </div>

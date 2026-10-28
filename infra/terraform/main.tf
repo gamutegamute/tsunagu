@@ -295,6 +295,10 @@ resource "aws_ecs_express_gateway_service" "app" {
       value = join(",", [for email in var.field_emails : lower(email)])
     }
     environment {
+      name  = "TRUSTED_PROXY_CIDRS"
+      value = join(",", var.trusted_proxy_cidrs)
+    }
+    environment {
       name  = "AUTH_SHELTER_ASSIGNMENTS"
       value = jsonencode({ for email, shelters in var.shelter_assignments : lower(email) => shelters })
     }

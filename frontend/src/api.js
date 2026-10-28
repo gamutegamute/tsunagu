@@ -16,6 +16,15 @@ export class ApiError extends Error {
   }
 }
 
+export const API_TIMEOUT_MS = 15000;
+
+export class ApiResponseError extends Error {
+  constructor() {
+    super("受理結果を確認できませんでした。同じ報告IDで再試行します。");
+    this.name = "ApiResponseError";
+  }
+}
+
 async function api(path, options = {}) {
   const method = (options.method || "GET").toUpperCase();
   const headers = { ...(options.headers || {}) };
@@ -25,10 +34,28 @@ async function api(path, options = {}) {
     if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
   }
 
-  const response = await fetch(path, { credentials: "same-origin", ...options, headers });
-  const body = response.status === 204 ? null : await response.json().catch(() => null);
-  if (!response.ok) throw new ApiError(response.status, body, response.headers.get("Retry-After"));
-  return body;
+  const controller = new AbortController();
+  let timer;
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await fetch(path, { credentials: "same-origin", ...options, headers, signal: controller.signal });
+        let body = null;
+        if (response.status !== 204) {
+          try { body = await response.json(); }
+          catch { if (response.ok) throw new ApiResponseError(); }
+        }
+        if (!response.ok) throw new ApiError(response.status, body, response.headers.get("Retry-After"));
+        return body;
+      })(),
+      new Promise((_, reject) => {
+        timer = window.setTimeout(() => {
+          reject(new Error("応答待ちがタイムアウトしました。受理の有無は未確認です。"));
+          controller.abort();
+        }, API_TIMEOUT_MS);
+      }),
+    ]);
+  } finally { window.clearTimeout(timer); }
 }
 
 export const fetchAuthConfig = () => api("/api/auth/config");
@@ -48,10 +75,16 @@ export const resetDemoData = (confirmation) => api("/api/admin/demo/reset", {
   body: JSON.stringify({ confirmation }),
 });
 
-export const createObservation = (payload) => api("/api/observations", {
-  method: "POST",
-  body: JSON.stringify(payload),
-});
+export async function createObservation(payload) {
+  const observation = await api("/api/observations", { method: "POST", body: JSON.stringify(payload) });
+  if (!observation || typeof observation.id !== "string" || !observation.id
+    || observation.client_event_id !== payload.client_event_id
+    || observation.shelter_id !== (payload.shelter_id ?? payload.shelter_code)
+    || observation.people_count !== payload.people_count || observation.water_stock !== payload.water_stock
+    || observation.urgency !== (payload.urgency ?? "NORMAL") || observation.memo !== (payload.memo ?? "")
+    || !Number.isFinite(Date.parse(observation.observed_at))) throw new ApiResponseError();
+  return observation;
+}
 
 export const createShelter = (payload) => api("/api/shelters", {
   method: "POST",

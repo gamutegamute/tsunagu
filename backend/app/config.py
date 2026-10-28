@@ -1,5 +1,15 @@
 import os
 from dataclasses import dataclass
+from ipaddress import ip_network
+
+DEVELOPMENT_SESSION_SECRET = "local-development-session-secret"
+
+
+def trusted_proxy_networks():
+    try:
+        return tuple(ip_network(value.strip()) for value in os.getenv("TRUSTED_PROXY_CIDRS", "").split(",") if value.strip())
+    except ValueError as exc:
+        raise RuntimeError("TRUSTED_PROXY_CIDRS must contain valid IP networks") from exc
 
 
 @dataclass(frozen=True)
@@ -37,7 +47,7 @@ def get_settings() -> Settings:
         app_env=os.getenv("APP_ENV", "development").lower(),
         auth_mode=os.getenv("AUTH_MODE", "dev").lower(),
         public_base_url=os.getenv("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/"),
-        session_secret=os.getenv("SESSION_SECRET", "local-development-session-secret"),
+        session_secret=os.getenv("SESSION_SECRET", DEVELOPMENT_SESSION_SECRET),
         session_hours=int(os.getenv("SESSION_HOURS", "24")),
         cognito_domain=os.getenv("COGNITO_DOMAIN", "").rstrip("/"),
         cognito_client_id=os.getenv("COGNITO_CLIENT_ID", ""),
@@ -59,6 +69,7 @@ def validate_runtime_settings() -> None:
     # 端末台帳の書式誤りは、最初のPacket受信時ではなく起動時に気付けるようにする。
     load_device_key_registry()
     shelter_assignments()
+    trusted_proxy_networks()
 
     settings = get_settings()
     if settings.app_env != "production":
@@ -67,8 +78,8 @@ def validate_runtime_settings() -> None:
     missing = []
     if settings.auth_mode not in {"cognito", "setup"}:
         missing.append("AUTH_MODE=cognito")
-    if len(settings.session_secret) < 32:
-        missing.append("SESSION_SECRET (32 characters or more)")
+    if not os.getenv("SESSION_SECRET") or len(settings.session_secret) < 32 or settings.session_secret == DEVELOPMENT_SESSION_SECRET:
+        missing.append("SESSION_SECRET (explicit, non-development secret of 32 characters or more)")
     if not settings.gateway_api_key:
         missing.append("GATEWAY_API_KEY")
     if settings.auth_mode == "cognito" and not settings.cognito_domain:

@@ -3,6 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from ipaddress import ip_address
 from uuid import uuid4
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response
@@ -28,7 +29,7 @@ from app.auth import (
     require_hq,
     require_shelter_assignment,
 )
-from app.config import get_settings, validate_runtime_settings
+from app.config import get_settings, validate_runtime_settings, trusted_proxy_networks
 from app.db import get_conn, get_demo_data_counts, reset_demo_dataset, seed_demo_data
 from app.emergency_packet import (
     ParsedEmergencyPacketV2,
@@ -295,11 +296,28 @@ def _reporter_identity(user: AuthUser | None) -> tuple[str, str | None]:
 
 
 def _client_ip(request: Request) -> str:
-    forwarded_for = request.headers.get("X-Forwarded-For", "")
-    if forwarded_for:
-        # The ALB appends the address it observed to the right side of the chain.
-        return forwarded_for.split(",")[-1].strip()
-    return request.client.host if request.client else "unknown"
+    try:
+        peer = ip_address(request.client.host) if request.client else None
+    except ValueError:
+        return "unknown"
+    networks = trusted_proxy_networks()
+    def trusted(address):
+        return address is not None and any(address in network for network in networks)
+    if not trusted(peer):
+        return str(peer) if peer is not None else "unknown"
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if not forwarded or len(forwarded) > 2048 or len(forwarded.split(",")) > 32:
+        return str(peer)
+    try:
+        chain = [ip_address(value.strip()) for value in forwarded.split(",")]
+    except ValueError:
+        return str(peer)
+    address = peer
+    for hop in reversed(chain):
+        if not trusted(address):
+            break
+        address = hop
+    return str(address)
 
 
 @app.post("/api/observations", response_model=Observation, status_code=201)
@@ -1091,6 +1109,13 @@ def _create_emergency_packet_v2(raw: str, hub_received_at: datetime) -> dict:
     skew = abs((packet.reported_at - hub_received_at).total_seconds())
     time_trust = "UNTRUSTED" if skew > PACKET_TIME_TRUST_MAX_SKEW_SECONDS else "TRUSTED"
     observed_at = hub_received_at if time_trust == "UNTRUSTED" else packet.reported_at
+    server_now = _current_utc_time()
+    if max(hub_received_at, packet.reported_at) > server_now + timedelta(seconds=PACKET_TIME_TRUST_MAX_SKEW_SECONDS):
+        time_trust = "UNTRUSTED"
+        observed_at = min(hub_received_at, server_now)
+        logger.warning("Future packet clock corrected device_id=%s", packet.device_id)
+    # Original packet/Hub timestamps remain in the audit log.
+    observed_at = min(observed_at, server_now)
     dedup_key = f"v2|{packet.device_id}|{packet.install_id}|{packet.sequence}"
     packet_id = f"EP-{hashlib.sha256(dedup_key.encode()).hexdigest()[:16]}"
 

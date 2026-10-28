@@ -38,6 +38,17 @@ describe("pending report store", () => {
     await expect(getPendingReports()).resolves.toEqual([]);
   });
 
+  it("reports a read failure and reconnects without reload, including fallback data", async () => {
+    await addPendingReport(report);
+    const spy = vi.spyOn(IDBObjectStore.prototype, "getAll").mockImplementationOnce(() => { throw new DOMException("temporary", "UnknownError"); });
+    await expect(getPendingReports()).rejects.toThrow("全件を読み出せません");
+    spy.mockRestore();
+    const second = { ...report, client_event_id: "fallback-after-read-error" };
+    await addPendingReport(second);
+    await expect(getPendingReports()).resolves.toEqual(expect.arrayContaining([report, second]));
+    await expect(getPendingReportCount()).resolves.toBe(2);
+  });
+
   it("migrates the legacy localStorage queue once", async () => {
     localStorage.setItem(STORAGE_KEYS.pendingReports, JSON.stringify([report]));
     localStorage.removeItem(STORAGE_KEYS.pendingReportsMigrated);
@@ -97,7 +108,7 @@ describe("pending report store", () => {
       request.addEventListener("success", () => this.transaction.abort());
       return request;
     });
-    await expect(getPendingReports()).resolves.toEqual([report]);
+    await expect(getPendingReports()).rejects.toMatchObject({ reports: [report] });
     expect(localStorage.getItem(STORAGE_KEYS.pendingReportsMigrated)).toBeNull();
     vi.restoreAllMocks();
     resetPendingReportStoreForTests();
@@ -120,7 +131,7 @@ describe("pending report store", () => {
       if (value.client_event_id === "event-2") request.addEventListener("success", () => this.transaction.abort());
       return request;
     });
-    await expect(getPendingReports()).resolves.toHaveLength(2);
+    await expect(getPendingReports()).rejects.toMatchObject({ reports: [report, second] });
     expect(Object.keys(JSON.parse(localStorage.getItem(STORAGE_KEYS.pendingReportsFallback)))).toHaveLength(2);
     vi.restoreAllMocks();
     resetPendingReportStoreForTests();
@@ -134,7 +145,7 @@ describe("pending report store", () => {
     const offlineTab = await import("./pendingReports.js");
     await offlineTab.getPendingReports();
     const fail = vi.spyOn(IDBDatabase.prototype, "transaction").mockImplementation(() => { throw new Error("unavailable"); });
-    await offlineTab.getPendingReports();
+    await expect(offlineTab.getPendingReports()).rejects.toThrow();
     fail.mockRestore();
     vi.resetModules();
     return { offlineTab, recoveringTab: await import("./pendingReports.js") };

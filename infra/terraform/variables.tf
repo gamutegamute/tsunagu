@@ -52,6 +52,12 @@ variable "shelter_assignments" {
   sensitive   = true
 }
 
+variable "trusted_proxy_cidrs" {
+  description = "Actual reverse proxy source networks allowed to supply X-Forwarded-For. Empty means trust no forwarded headers."
+  type        = list(string)
+  default     = []
+}
+
 variable "field_emails" {
   type      = list(string)
   sensitive = true
