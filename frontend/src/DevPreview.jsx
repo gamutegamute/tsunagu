@@ -5,9 +5,8 @@ import { useShelterList } from "./hooks/useShelterList.js";
 import { useNetworkMode } from "./hooks/useNetworkMode.js";
 import { useOfflineReportQueue } from "./hooks/useOfflineReportQueue.js";
 import { useDashboardData } from "./hooks/useDashboardData.js";
-import { createObservation } from "./api.js";
 import { STORAGE_KEYS } from "./utils/storageKeys.js";
-import { createClientEventId } from "./utils/clientEventId.js";
+import DashboardFreshness from "./components/DashboardFreshness.jsx";
 
 /**
  * 開発確認用プレビューページ。本部権限でURLを直接開いた場合だけ表示する。
@@ -17,8 +16,8 @@ import { createClientEventId } from "./utils/clientEventId.js";
  */
 export default function DevPreview() {
   const shelters = useShelterList();
-  const { pendingReportCount, addReportToPendingQueue, sendPendingReports } = useOfflineReportQueue();
-  const { dashboardItems, reloadDashboard } = useDashboardData();
+  const { pendingReportCount, addReportToPendingQueue, sendPendingReports, sendReport, isSyncing, syncError } = useOfflineReportQueue();
+  const { dashboardItems, reloadDashboard, ...freshness } = useDashboardData();
   const [networkMode, offlinePhase] = useNetworkMode(() => {
     sendPendingReports().then(reloadDashboard);
   });
@@ -28,31 +27,34 @@ export default function DevPreview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleSubmitReport({ reporterName, shelterId, peopleCount, waterStock, urgency, memo }) {
+  async function handleSubmitReport({ reporterName, shelterId, peopleCount, waterStock, urgency, memo, clientEventId, observedAt }) {
     const trimmedReporterName = reporterName.trim();
-    if (trimmedReporterName) {
-      localStorage.setItem(STORAGE_KEYS.reporterName, trimmedReporterName);
-    }
+    try { if (trimmedReporterName) localStorage.setItem(STORAGE_KEYS.reporterName, trimmedReporterName); } catch { /* Optional preference. */ }
 
     const payload = {
       reporter_name: trimmedReporterName,
       shelter_id: shelterId,
-      client_event_id: createClientEventId(),
+      client_event_id: clientEventId,
       people_count: peopleCount,
       water_stock: waterStock,
       urgency,
       memo,
-      observed_at: new Date().toISOString(),
+      observed_at: observedAt,
       source: networkMode === "offline" ? "offline" : "web",
     };
 
+    await addReportToPendingQueue(payload);
+    if (networkMode !== "normal") return "queued";
     try {
-      await createObservation(payload);
+      await sendReport(payload);
     } catch (error) {
-      addReportToPendingQueue(payload);
+      await addReportToPendingQueue(payload, error);
+      if (error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)) throw error;
+      return "queued";
     }
 
     await reloadDashboard();
+    return "sent";
   }
 
   function handleSyncButtonClick() {
@@ -69,11 +71,14 @@ export default function DevPreview() {
         <div className="dev-preview-frame dev-preview-frame-mobile">
           <p className="dev-preview-frame-label">モバイル・390px</p>
           <div className="dev-preview-frame-body">
+            {syncError && <p role="alert">{syncError}</p>}
             <FieldReportForm
               shelters={shelters}
               networkMode={networkMode}
               offlinePhase={offlinePhase}
               pendingReportCount={pendingReportCount}
+              isSyncing={isSyncing}
+              onSyncPendingReports={sendPendingReports}
               onSubmitReport={handleSubmitReport}
             />
           </div>
@@ -82,6 +87,7 @@ export default function DevPreview() {
         <div className="dev-preview-frame dev-preview-frame-desktop">
           <p className="dev-preview-frame-label">PC・1920px</p>
           <div className="dev-preview-frame-body">
+            <DashboardFreshness {...freshness} />
             <Dashboard shelterStatusList={dashboardItems} onSyncButtonClick={handleSyncButtonClick} />
           </div>
         </div>

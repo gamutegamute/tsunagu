@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { applyDashboardFreshness } from "../utils/dashboardFreshness.js";
 import { fetchDashboard, fetchEmergencyPackets } from "../api.js";
 import { loadJson } from "../utils/localJson.js";
 import { STORAGE_KEYS } from "../utils/storageKeys.js";
@@ -17,13 +18,30 @@ import { recordDashboardSnapshot } from "../utils/shelterObservationHistory.js";
  * 遅いレスポンスが後から返ってきて新しいデータを上書きする事態を防ぐ。
  */
 export function useDashboardData() {
-  const [dashboardItems, setDashboardItems] = useState(() => loadJson(STORAGE_KEYS.cachedDashboard, []));
+  const [rawItems, setDashboardItems] = useState(() => loadJson(STORAGE_KEYS.cachedDashboard, []));
+  const [now, setNow] = useState(Date.now);
+  const [error, setError] = useState("");
+  const [isCached, setIsCached] = useState(true);
+  const [lastSuccessAt, setLastSuccessAt] = useState(() => loadJson(STORAGE_KEYS.cachedDashboardFetchedAt, null));
   const [emergencyPackets, setEmergencyPackets] = useState([]);
   const inFlightRef = useRef(null);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   function showAndCacheDashboard(items) {
-    localStorage.setItem(STORAGE_KEYS.cachedDashboard, JSON.stringify(items));
+    const fetchedAt = new Date().toISOString();
+    try {
+      localStorage.setItem(STORAGE_KEYS.cachedDashboard, JSON.stringify(items));
+      localStorage.setItem(STORAGE_KEYS.cachedDashboardFetchedAt, JSON.stringify(fetchedAt));
+      recordDashboardSnapshot(items);
+    } catch { /* An optional cache failure must not hide a successful fetch. */ }
     setDashboardItems(items);
+    setLastSuccessAt(fetchedAt);
+    setIsCached(false);
+    setNow(Date.now());
   }
 
   const reloadDashboard = useCallback(() => {
@@ -32,11 +50,16 @@ export function useDashboardData() {
     const promise = (async () => {
       try {
         const items = await fetchDashboard();
+        if (!Array.isArray(items)) throw new Error("Invalid dashboard response");
         showAndCacheDashboard(items);
-        recordDashboardSnapshot(items);
         setEmergencyPackets(await fetchEmergencyPackets());
+        setError("");
+        return true;
       } catch (error) {
-        showAndCacheDashboard(loadJson(STORAGE_KEYS.cachedDashboard, []));
+        setIsCached(true);
+        setNow(Date.now());
+        setError("最新情報を取得できませんでした。保持している情報を表示しています。通信とログイン状態を確認してください。");
+        return false;
       }
     })().finally(() => {
       inFlightRef.current = null;
@@ -46,5 +69,5 @@ export function useDashboardData() {
     return promise;
   }, []);
 
-  return { dashboardItems, emergencyPackets, reloadDashboard };
+  return { dashboardItems: rawItems.map((item) => applyDashboardFreshness(item, now)), emergencyPackets, reloadDashboard, error, isCached, lastSuccessAt };
 }

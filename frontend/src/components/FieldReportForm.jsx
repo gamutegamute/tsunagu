@@ -118,7 +118,7 @@ export default function FieldReportForm({
             {isSyncing ? "同期中..." : "未送信データを同期"}
           </button>
         )}
-        <p className="pending">未送信 {pendingReportCount}件</p>
+        <p className="pending">{pendingReportCount === null ? "未送信件数を確認中" : `未送信 ${pendingReportCount}件`}</p>
         <button type="submit" disabled={isSubmitting}>{isSubmitting ? "保存・送信中..." : "報告する"}</button>
         </fieldset>
         {submitError && <p role="alert">{submitError}</p>}

@@ -21,7 +21,21 @@ function serialize(operation) {
 }
 
 function hasIndexedDb() {
-  return !indexedDbUnavailable && typeof indexedDB !== "undefined";
+  return typeof indexedDB !== "undefined";
+}
+
+export class PendingReportsReadError extends Error {
+  constructor(reports, cause) {
+    super("未送信報告の全件を読み出せません。端末内の報告は保持されています。", { cause });
+    this.reports = reports;
+  }
+}
+
+function reconnectOnNextRead() {
+  indexedDbUnavailable = true;
+  const previous = databasePromise;
+  databasePromise = undefined;
+  void previous?.then((database) => database?.close()).catch(() => {});
 }
 
 function openDatabase() {
@@ -139,10 +153,11 @@ async function readReports() {
     await migrateLegacyReports();
     await reconcileFallback();
     const reports = await runTransaction("readonly", (store) => store.getAll());
+    indexedDbUnavailable = false;
     return reports ?? [];
-  } catch {
-    indexedDbUnavailable = true;
-    return fallbackReports();
+  } catch (error) {
+    reconnectOnNextRead();
+    throw new PendingReportsReadError(fallbackReports(), error);
   }
 }
 
@@ -155,7 +170,7 @@ async function addReport(report) {
     throw new Error("client_event_id is required for an offline report");
   }
 
-  if (!hasIndexedDb()) {
+  if (!hasIndexedDb() || indexedDbUnavailable) {
     writeFallback(report.client_event_id, report);
     return;
   }
@@ -165,8 +180,8 @@ async function addReport(report) {
     await reconcileFallback();
     await runTransaction("readwrite", (store) => store.put(report));
   } catch {
-    indexedDbUnavailable = true;
-    await addReport(report);
+    reconnectOnNextRead();
+    writeFallback(report.client_event_id, report);
   }
 }
 
@@ -175,7 +190,7 @@ export function addPendingReport(report) {
 }
 
 async function removeReport(clientEventId) {
-  if (!hasIndexedDb()) {
+  if (!hasIndexedDb() || indexedDbUnavailable) {
     writeFallback(clientEventId, null);
     return;
   }
@@ -185,8 +200,8 @@ async function removeReport(clientEventId) {
     await reconcileFallback();
     await runTransaction("readwrite", (store) => store.delete(clientEventId));
   } catch {
-    indexedDbUnavailable = true;
-    await removeReport(clientEventId);
+    reconnectOnNextRead();
+    writeFallback(clientEventId, null);
   }
 }
 

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import TimelineShelterGroup from "../components/timeline/TimelineShelterGroup.jsx";
+import DashboardFreshness from "../components/DashboardFreshness.jsx";
 import { useShelterList } from "../hooks/useShelterList.js";
 import { useDashboardData } from "../hooks/useDashboardData.js";
 import { mergeEmergencyDataIntoDashboard } from "../utils/emergencyPacket.js";
@@ -16,7 +17,7 @@ import { mergeEmergencyDataIntoDashboard } from "../utils/emergencyPacket.js";
 export default function TimelinePage() {
   const navigate = useNavigate();
   const shelters = useShelterList();
-  const { dashboardItems, emergencyPackets, reloadDashboard } = useDashboardData();
+  const { dashboardItems, emergencyPackets, reloadDashboard, ...freshness } = useDashboardData();
 
   useEffect(() => {
     reloadDashboard();
@@ -42,6 +43,7 @@ export default function TimelinePage() {
       </header>
 
       <main className="layout-desktop">
+        <DashboardFreshness {...freshness} />
         <section className="panel">
           <p className="incident-header-note-dark timeline-note">
             全避難所の最新の報告を新しい順に表示しています。避難所ごとに「▼ 過去の報告を見る」を押すと、過去の報告履歴を遡って確認できます。

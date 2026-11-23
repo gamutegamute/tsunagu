@@ -6,6 +6,8 @@ google_client_secret  = "set-with-TF_VAR_google_client_secret"
 # Real addresses belong in encrypted CI secrets or an untracked terraform.tfvars.
 hq_emails    = ["hq@example.com"]
 field_emails = ["field@example.com"]
+# ALB等の実際の接続元ネットワークに限定。広いプライベートアドレス帯を無条件に指定しない。
+trusted_proxy_cidrs = []
 shelter_assignments = {
   "hq@example.com"    = ["*"]
   "field@example.com" = ["AIT001"]

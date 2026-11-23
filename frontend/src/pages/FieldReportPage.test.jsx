@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import FieldReportPage from "./FieldReportPage.jsx";
 import { STORAGE_KEYS } from "../utils/storageKeys.js";
@@ -41,6 +41,23 @@ describe("FieldReportPage — 決定事項29: オフライン中の報告は未�
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("durably saves before a stalled POST and returns control after timeout", async () => {
+    mockNetworkMode = "normal";
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const fetch = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetch);
+    renderPage();
+    await act(async () => { await submitReport(); await getPendingReports(); await getPendingReports(); });
+    const saved = await getPendingReports();
+    expect(saved).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+    expect(screen.getByRole("button", { name: "報告する" }).disabled).toBe(false);
+    expect((await getPendingReports())[0].client_event_id).toBe(saved[0].client_event_id);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("keeps input when both the POST and durable storage fail", async () => {

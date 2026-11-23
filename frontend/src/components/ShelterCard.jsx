@@ -13,7 +13,7 @@ function toStatusClassName(status) {
 
 function formatUpdatedAt(observedAtIsoString) {
   if (!observedAtIsoString) return "まだ報告がありません";
-  const time = new Date(observedAtIsoString).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  const time = new Date(observedAtIsoString).toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
   return `最終更新 ${time}`;
 }
 
@@ -97,6 +97,7 @@ export default function ShelterCard({ shelterStatus, onClick, onVerificationChan
         )}
 
         <div className="shelter-card-footer">
+          {shelterStatus.is_stale && <span>24時間以上更新なし・要確認</span>}
           <span className="shelter-card-updated">{formatUpdatedAt(observation?.observed_at)}</span>
           {requestCode && <span className="request-code-chip">{shelterStatus.explicit_request_code ? "要請: " : "補助判定: "}<span>{requestCode}</span></span>}
           {shelterStatus.derived_request_code && shelterStatus.derived_request_code !== requestCode && (

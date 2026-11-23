@@ -7,6 +7,7 @@ const KEY_SUFFIXES = {
   pendingReportsMigrated: "pendingReportsMigratedToIndexedDb",
   cachedShelters: "cachedShelters",
   cachedDashboard: "cachedDashboard",
+  cachedDashboardFetchedAt: "cachedDashboardFetchedAt",
   reporterName: "reporterName",
   approverName: "approverName",
   activeShelter: "activeShelter",
