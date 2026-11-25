@@ -1,11 +1,10 @@
 #pragma once
 
-// Set one shelter code per sender before writing the firmware.
-constexpr char TSUNAGU_SHELTER_CODE[] = "AIT001";
+// 端末ごとの値(device_id、key_id、HMAC鍵、shelter_code、Wi-Fiのパスワード)は、ここには書かない。
+// USBシリアルの SET コマンドでNVSへ書き込む(docs/tbeam-provisioning.md)。
 
-constexpr char TSUNAGU_AP_SSID[] = "TSUNAGU-Emergency";
-// This is a public demo default. Change it before using the device at a venue.
-constexpr char TSUNAGU_AP_PASSWORD[] = "change-before-demo";
+// Wi-Fi名は TSUNAGU-<device_id>。
+constexpr char TSUNAGU_AP_SSID_PREFIX[] = "TSUNAGU-";
 
 // These values must match the receiver and the settings already verified on the actual devices.
 // Do not change radio parameters independently on only one side.
